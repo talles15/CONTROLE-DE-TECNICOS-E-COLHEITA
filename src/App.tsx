@@ -4,7 +4,7 @@ import { FichaCampo } from './components/FichaCampo';
 import { ProvedorDados, useDados } from './lib/dados';
 import { ABAS, ir, useRota } from './lib/rota';
 import { DemoStore, SupabaseStore, type Store } from './lib/store';
-import { supabase } from './lib/supabase';
+import { pendencias, supabase } from './lib/supabase';
 import Calendario from './pages/Calendario';
 import Campos from './pages/Campos';
 import Importar from './pages/Importar';
@@ -54,7 +54,8 @@ function Casca({ email }: { email: string | null }) {
       <div className="topo">
         {store.modo === 'demo' && (
           <div className="faixa-demo">
-            <b>Modo demonstração</b> — Supabase ainda não configurado: os dados ficam só neste navegador e não são compartilhados com a equipe (veja o README).
+            <b>Modo demonstração</b> — Supabase ainda não configurado: os dados ficam só neste navegador e não são compartilhados com a equipe.
+            <div>Falta na Vercel: {pendencias.join(' · ')}. Depois de corrigir, publique de novo (Redeploy).</div>
           </div>
         )}
         <div className="topo-in">
