@@ -30,7 +30,7 @@ interface Ctx {
   salvarDessecacoes: (ds: NovaDessecacao[]) => Promise<boolean>;
   excluirDessecacao: (id: string) => Promise<boolean>;
   salvarProgramacoes: (ps: NovaProgramacao[], msg?: string) => Promise<boolean>;
-  atualizarProgramacao: (id: string, patch: Partial<Programacao>) => Promise<boolean>;
+  atualizarProgramacao: (id: string, patch: Partial<Programacao>, msg?: string) => Promise<boolean>;
   excluirProgramacao: (id: string) => Promise<boolean>;
   salvarConfig: (c: Config) => void;
 }
@@ -205,13 +205,13 @@ export function ProvedorDados({ store, children, onSair }: { store: Store; child
       if (r) mut((d) => ({ ...d, programacoes: troca(d.programacoes, r) }));
       return !!r;
     },
-    atualizarProgramacao: async (id, patch) => {
-      const r = await tentar(() => store.atualizarProgramacao(id, patch));
+    atualizarProgramacao: async (id, patch, msg) => {
+      const r = await tentar(() => store.atualizarProgramacao(id, patch), msg);
       if (r) mut((d) => ({ ...d, programacoes: troca(d.programacoes, [r]) }));
       return !!r;
     },
     excluirProgramacao: async (id) => {
-      const r = await tentar(async () => (await store.excluirProgramacao(id), true));
+      const r = await tentar(async () => (await store.excluirProgramacao(id), true), 'Programação removida.');
       if (r) mut((d) => ({ ...d, programacoes: d.programacoes.filter((x) => x.id !== id) }));
       return !!r;
     },

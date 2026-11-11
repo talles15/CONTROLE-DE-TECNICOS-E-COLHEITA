@@ -325,7 +325,12 @@ export class DemoStore implements Store {
   async atualizarProgramacao(id: string, patch: Partial<Programacao>): Promise<Programacao> {
     const i = this.d.programacoes.findIndex((x) => x.id === id);
     if (i < 0) throw new Error('Programação não encontrada.');
-    this.d.programacoes[i] = { ...this.d.programacoes[i], ...patch, id };
+    const novo = { ...this.d.programacoes[i], ...patch, id };
+    // mesma regra do banco: um técnico não pode ter o mesmo campo duas vezes no mesmo dia
+    if (this.d.programacoes.some((x) => x.id !== id && x.data === novo.data && x.tecnico_id === novo.tecnico_id && x.campo_id === novo.campo_id)) {
+      throw new Error('Já existe um registro igual (mesmo técnico, campo e dia).');
+    }
+    this.d.programacoes[i] = novo;
     this.gravar();
     return this.copia(this.d.programacoes[i]);
   }

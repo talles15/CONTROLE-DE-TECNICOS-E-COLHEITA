@@ -109,6 +109,16 @@ describe('texto do WhatsApp', () => {
     expect(t).toContain('• T01 — Colher + retirar pré-colheita — Fazenda Teste — RIO VERDE');
     expect(t).toContain('Total: 1 atividade(s), 1 técnico(s).');
   });
+  it('em reenvios ao longo do dia mostra a hora e o que já foi concluído', () => {
+    const itens = [{ prog: prog({ status: 'realizado' }), campo: c }];
+    const t = textoTecnico('2026-11-15', tec, itens, '14:30');
+    expect(t).toContain('Atualizada às 14:30');
+    expect(t).toContain('Situação: CONCLUÍDO');
+    expect(textoTecnico('2026-11-15', tec, itens)).not.toContain('Atualizada');
+    const g = textoGeral('2026-11-15', [{ tecnico: tec, itens }], '14:30');
+    expect(g).toContain('Atualizada às 14:30');
+    expect(g).toMatch(/• T01 .* ✅/);
+  });
   it('normaliza o telefone para o link do WhatsApp', () => {
     expect(telefoneWhats('(64) 99999-0001')).toBe('5564999990001');
     expect(telefoneWhats('+55 64 3621-0000')).toBe('556436210000');
@@ -213,6 +223,17 @@ describe('armazenamento de demonstração', () => {
     const d = await s.carregar();
     expect(d.programacoes).toHaveLength(1);
     expect(d.programacoes[0].atividade).toBe('coleta_pre');
+  });
+  it('permite trocar técnico, dia e andamento, sem duplicar técnico + campo + dia', async () => {
+    const s = new DemoStore(null, vazio());
+    const base = { data: '2026-11-12', campo_id: 'c1', atividade: 'colheita_pre' as const, observacoes: null };
+    const [a] = await s.salvarProgramacoes([{ ...base, tecnico_id: 't1' }]);
+    await s.salvarProgramacoes([{ ...base, tecnico_id: 't2' }]);
+    const m = await s.atualizarProgramacao(a.id, { tecnico_id: 't3', data: '2026-11-13', status: 'realizado' });
+    expect([m.tecnico_id, m.data, m.status]).toEqual(['t3', '2026-11-13', 'realizado']);
+    await expect(s.atualizarProgramacao(a.id, { tecnico_id: 't2', data: '2026-11-12' })).rejects.toThrow(/Já existe/);
+    await s.excluirProgramacao(a.id);
+    expect((await s.carregar()).programacoes.map((p) => p.tecnico_id)).toEqual(['t2']);
   });
   it('os dados de exemplo são fictícios e trazem um aviso de véspera', async () => {
     const s = new DemoStore(null);

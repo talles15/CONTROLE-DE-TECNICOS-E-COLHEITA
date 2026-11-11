@@ -211,7 +211,18 @@ details.sec[open] > summary::before { content: "▾ "; }
 .item .l2 { font-size: 12.5px; color: var(--text-secondary); margin: 2px 0 6px; }
 .item .ctl { display: grid; grid-template-columns: 1fr; gap: 6px; }
 .item select, .item input { font: inherit; font-size: 12.5px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--text-primary); width: 100%; }
-.item.cancelado { opacity: .5; }
+.item.cancelado { opacity: .55; }
+.item.cancelado .l1 b { text-decoration: line-through; }
+.item.realizado { border-left: 4px solid var(--good); }
+.item .duas { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.item .duas label span { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 2px; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg-b { font: inherit; font-size: 12px; padding: 4px 6px; border: 0; border-left: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary); cursor: pointer; }
+.seg-b:first-child { border-left: 0; }
+.seg-b.on { font-weight: 650; color: var(--text-primary); background: var(--accent-soft); }
+.seg-b.realizado.on { background: var(--good-soft); }
+.seg-b.cancelado.on { background: var(--critical-soft); }
+.badge.feito { background: var(--good-soft); border-color: transparent; color: var(--text-primary); }
 .texto-prev { width: 100%; min-height: 180px; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text-primary); white-space: pre-wrap; resize: vertical; }
 .sel-campo { position: relative; }
 .sel-campo .lista { position: absolute; z-index: 700; top: calc(100% + 4px); left: 0; right: 0; max-height: 280px; overflow: auto; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.15); }

@@ -5,9 +5,14 @@ import { br, diaSemana, diaSemanaLongo, diaSemanaN, dn, iso, MESES, somaDias } f
 import { n0 } from '../lib/format';
 import { abrirFicha, ir } from '../lib/rota';
 import { ORDEM_SITUACAO, SITUACOES, type Alerta, type TipoAlerta } from '../lib/status';
-import { ATIVIDADES, type Campo } from '../lib/types';
+import { ATIVIDADES, STATUS_PROG, type Campo } from '../lib/types';
 
 type Camada = 'dess' | 'prog' | 'colh' | 'prev';
+interface Evento {
+  campo: Campo;
+  motivos: string[];
+}
+const ordEvento = (a: Evento, b: Evento) => ordCampo(a.campo, b.campo);
 const CAMADAS: Record<Camada, { rotulo: string; cor: string }> = {
   dess: { rotulo: 'Dessecados', cor: 'var(--st-dessecado)' },
   prog: { rotulo: 'Colheita programada', cor: 'var(--st-programada)' },
@@ -32,39 +37,45 @@ export default function Calendario() {
   const [sel, setSel] = useState<string | null>(hoje);
   const [vis, setVis] = useState<Record<Camada, boolean>>({ dess: true, prog: true, colh: true, prev: false });
 
-  // eventos por dia e camada
+  // eventos por dia e camada, com o motivo de cada campo estar ali
   const eventos = useMemo(() => {
-    const m = new Map<string, Record<Camada, Map<string, Campo>>>();
-    const add = (dia: string, cam: Camada, c: Campo) => {
+    const m = new Map<string, Record<Camada, Map<string, Evento>>>();
+    const add = (dia: string, cam: Camada, c: Campo, motivo: string) => {
       let e = m.get(dia);
       if (!e) m.set(dia, (e = { dess: new Map(), prog: new Map(), colh: new Map(), prev: new Map() }));
-      e[cam].set(c.id, c);
+      const ev = e[cam].get(c.id);
+      if (ev) ev.motivos.push(motivo);
+      else e[cam].set(c.id, { campo: c, motivos: [motivo] });
     };
     for (const x of d.dados.dessecacoes) {
       const c = d.campoPorId.get(x.campo_id);
       if (!c || !c.ativo) continue;
-      add(x.data, 'dess', c);
+      add(x.data, 'dess', c, `Dessecação registrada neste dia${x.area_ha ? ` (${n0(x.area_ha)} ha)` : ''}`);
       const p = x.data_provavel_colheita;
-      if (p && !(c.colheita_inicio && c.colheita_inicio <= p) && !(c.colheita_fim && c.colheita_fim < p)) add(p, 'prog', c);
+      if (p && !(c.colheita_inicio && c.colheita_inicio <= p) && !(c.colheita_fim && c.colheita_fim < p)) {
+        add(p, 'prog', c, `Colheita provável: dessecado em ${br(x.data)} + ${x.dias_para_colheita} dia(s)`);
+      }
     }
     for (const c of d.dados.campos) {
       if (!c.ativo) continue;
       if (c.colheita_inicio) {
-        if (c.colheita_inicio > hoje) add(c.colheita_inicio, 'prog', c);
+        if (c.colheita_inicio > hoje) add(c.colheita_inicio, 'prog', c, 'Início da colheita marcado para este dia');
         const fim = c.colheita_fim ?? hoje;
-        for (let k = dn(c.colheita_inicio); k <= dn(fim) && k - dn(c.colheita_inicio) < 120; k++) add(iso(k), 'colh', c);
+        for (let k = dn(c.colheita_inicio); k <= dn(fim) && k - dn(c.colheita_inicio) < 120; k++) {
+          add(iso(k), 'colh', c, `Colheita iniciada em ${br(c.colheita_inicio)}${c.colheita_fim ? `, encerrada em ${br(c.colheita_fim)}` : ''}`);
+        }
       }
-      if (c.data_colheita_prevista && d.resumos.get(c.id)?.situacao === 'plantado') add(c.data_colheita_prevista, 'prev', c);
+      if (c.data_colheita_prevista && d.resumos.get(c.id)?.situacao === 'plantado') add(c.data_colheita_prevista, 'prev', c, 'Previsão da planilha (plantio + ciclo)');
     }
     // técnico programado para colher em dia futuro, em campo que ainda não começou
     for (const p of d.dados.programacoes) {
       const c = d.campoPorId.get(p.campo_id);
       if (!c || !c.ativo || p.status === 'cancelado' || p.atividade !== 'colheita_pre' || p.data < hoje) continue;
       if (c.colheita_fim || (c.colheita_inicio && c.colheita_inicio <= p.data)) continue;
-      add(p.data, 'prog', c);
+      add(p.data, 'prog', c, `Técnico programado para colher: ${d.tecnicoPorId.get(p.tecnico_id)?.nome ?? '—'}`);
     }
     return m;
-  }, [d.dados, d.campoPorId, d.resumos, hoje]);
+  }, [d.dados, d.campoPorId, d.tecnicoPorId, d.resumos, hoje]);
 
   const progPorDia = useMemo(() => {
     const m = new Map<string, number>();
@@ -172,14 +183,14 @@ export default function Calendario() {
                 {(() => {
                   if (!e) return null;
                   // um bloco por campo: nº do campo + cultivar, e o agricultor na linha de baixo
-                  const itens = ORDEM.filter((c) => vis[c]).flatMap((c) => [...e[c].values()].sort(ordCampo).map((campo) => ({ c, campo })));
+                  const itens = ORDEM.filter((c) => vis[c]).flatMap((c) => [...e[c].values()].sort(ordEvento).map((ev) => ({ c, campo: ev.campo, motivos: ev.motivos })));
                   const mostra = itens.slice(0, MAX_POR_DIA);
                   const resto = itens.length - mostra.length;
                   return (
                     <>
-                      {mostra.map(({ c, campo }) => (
+                      {mostra.map(({ c, campo, motivos }) => (
                         <span key={c + campo.id} className={'ev ' + c}
-                          title={`${CAMADAS[c].rotulo}: ${campo.num_campo} · ${campo.produto ?? 'sem cultivar'} · ${campo.cliente ?? 'sem agricultor'}`}>
+                          title={`${campo.num_campo} · ${campo.produto ?? 'sem cultivar'} · ${campo.cliente ?? 'sem agricultor'}\n${[...new Set(motivos)].join('\n')}`}>
                           <span className="l1"><b>{campo.num_campo}</b>{campo.produto && <span className="det"> · {campo.produto}</span>}</span>
                           {campo.cliente && <span className="l2">{campo.cliente}</span>}
                         </span>
@@ -206,7 +217,7 @@ export default function Calendario() {
           {ORDEM.filter((c) => vis[c] && evSel && evSel[c].size).map((c) => (
             <div key={c}>
               <h3><i style={{ background: CAMADAS[c].cor }} />{CAMADAS[c].rotulo} ({evSel![c].size})</h3>
-              <TabelaDia campos={[...evSel![c].values()].sort(ordCampo)} dia={sel} />
+              <TabelaDia eventos={[...evSel![c].values()].sort(ordEvento)} dia={sel} />
             </div>
           ))}
           {(!evSel || ORDEM.every((c) => !vis[c] || !evSel[c].size)) && <div className="empty">Nenhum campo neste dia nas camadas selecionadas.</div>}
@@ -215,7 +226,7 @@ export default function Calendario() {
               <h3>Técnicos programados ({progsSel.length})</h3>
               <div className="tbl-wrap" style={{ maxHeight: 260 }}>
                 <table>
-                  <thead><tr><th>Técnico</th><th>Campo</th><th>Local</th><th>Atividade</th></tr></thead>
+                  <thead><tr><th>Técnico</th><th>Campo</th><th>Local</th><th>Atividade</th><th>Andamento</th><th /></tr></thead>
                   <tbody>
                     {progsSel.map((p) => {
                       const t = d.tecnicoPorId.get(p.tecnico_id);
@@ -224,6 +235,11 @@ export default function Calendario() {
                       return (
                         <tr key={p.id} className="clic" onClick={() => abrirFicha(c.id)}>
                           <td><TecChip t={t} /></td><td><b>{c.num_campo}</b></td><td>{descCampo(c)}</td><td>{ATIVIDADES[p.atividade].curto}</td>
+                          <td><span className={'badge' + (p.status === 'realizado' ? ' feito' : '')}>{STATUS_PROG[p.status]}</span></td>
+                          <td className="n">
+                            <button className="btn mini perigo" aria-label={`Remover ${t.nome} do campo ${c.num_campo}`}
+                              onClick={(e) => { e.stopPropagation(); void d.excluirProgramacao(p.id); }}>Remover</button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -238,14 +254,14 @@ export default function Calendario() {
   );
 }
 
-function TabelaDia({ campos, dia }: { campos: Campo[]; dia: string }) {
+function TabelaDia({ eventos, dia }: { eventos: Evento[]; dia: string }) {
   const d = useDados();
   return (
     <div className="tbl-wrap" style={{ maxHeight: 300 }}>
       <table>
-        <thead><tr><th>Campo</th><th>Cliente · Fazenda · Cidade</th><th>Cultivar</th><th className="n">Área (ha)</th><th>Situação</th><th>Técnico no dia</th></tr></thead>
+        <thead><tr><th>Campo</th><th>Agricultor · Fazenda · Cidade</th><th>Cultivar</th><th className="n">Área (ha)</th><th>Por que aparece neste dia</th><th>Situação</th><th>Técnico no dia</th></tr></thead>
         <tbody>
-          {campos.map((c) => {
+          {eventos.map(({ campo: c, motivos }) => {
             const tecs = d.dados.programacoes.filter((p) => p.campo_id === c.id && p.data === dia && p.status !== 'cancelado');
             return (
               <tr key={c.id} className="clic" onClick={() => abrirFicha(c.id)}>
@@ -253,6 +269,7 @@ function TabelaDia({ campos, dia }: { campos: Campo[]; dia: string }) {
                 <td>{descCampo(c)}</td>
                 <td>{c.produto}</td>
                 <td className="n">{n0(c.area_mapa)}</td>
+                <td>{[...new Set(motivos)].map((m) => <div key={m}>{m}</div>)}</td>
                 <td><Sit s={d.resumos.get(c.id)!.situacao} /></td>
                 <td>{tecs.length ? tecs.map((p) => { const t = d.tecnicoPorId.get(p.tecnico_id); return t ? <TecChip key={p.id} t={t} /> : null; }) : <span className="muted">—</span>}</td>
               </tr>

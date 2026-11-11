@@ -73,6 +73,10 @@ try {
   await p.getByRole('button', { name: 'Salvar' }).click();
   await p.getByRole('cell', { name: 'Técnico E2E' }).waitFor();
   ok(true, 'cadastra técnico com telefone');
+  await p.getByRole('button', { name: '+ Novo técnico' }).click();
+  await p.getByLabel('Nome').fill('Técnico Dois');
+  await p.getByRole('button', { name: 'Salvar' }).click();
+  await p.getByRole('cell', { name: 'Técnico Dois' }).waitFor();
 
   console.log('Importação em massa');
   await ir('importar');
@@ -152,6 +156,37 @@ try {
   await p.getByText('Em colheita').first().waitFor();
   await p.getByRole('button', { name: 'Fechar' }).click();
   ok((await p.locator('[data-dia="2026-11-15"] .ev.colh').count()) === 1, 'calendário passa a mostrar o campo em colheita');
+
+  console.log('Alterações ao longo do dia');
+  await ir('programacao?data=2026-11-15');
+  const item = () => p.locator(`[data-campo="${alvo}"]`);
+  await item().getByRole('button', { name: 'Concluído' }).click();
+  await p.locator('[data-tecnico="Técnico E2E"]').getByText('1 de 1 concluído(s)').waitFor();
+  ok(true, 'marca a atividade como concluída e o cartão do técnico mostra o andamento');
+  await p.locator('[data-tecnico="Técnico E2E"]').getByRole('button', { name: 'Ver texto' }).click();
+  const texto2 = await p.getByTestId('texto-whats').inputValue();
+  ok(texto2.includes('Atualizada às 08:00') && texto2.includes('Situação: CONCLUÍDO'), 'o texto reenviado no dia traz a hora da atualização e o que já foi concluído');
+  await p.getByRole('button', { name: 'Fechar' }).click();
+  await item().getByLabel(`Técnico responsável ${alvo}`).selectOption({ label: 'Técnico Dois' });
+  await p.locator(`[data-tecnico="Técnico Dois"] [data-campo="${alvo}"]`).waitFor();
+  ok((await p.locator(`[data-tecnico="Técnico E2E"] [data-campo="${alvo}"]`).count()) === 0, 'passa o campo de um técnico para outro');
+  await item().getByLabel(`Dia ${alvo}`).fill('2026-11-16');
+  await p.getByText(`Campo ${alvo} movido para 16/11/2026.`).waitFor();
+  ok((await item().count()) === 0, 'move a atividade para outro dia (sai do dia 15)');
+  await ir('programacao?data=2026-11-16');
+  ok(await p.locator(`[data-tecnico="Técnico Dois"] [data-campo="${alvo}"]`).isVisible(), 'a atividade aparece no dia 16 com o novo técnico');
+  await item().getByRole('button', { name: alvo, exact: true }).click();
+  await p.getByRole('button', { name: 'Alterar' }).click();
+  await p.getByRole('dialog').getByRole('button', { name: 'Cancelado' }).click();
+  await p.getByRole('dialog').locator('span.badge', { hasText: 'Cancelado' }).waitFor();
+  ok(true, 'na ficha do campo dá para alterar a programação (cancelar)');
+  await p.getByRole('dialog').getByRole('button', { name: 'Remover programação de 16/11/2026' }).click();
+  await p.getByText('Nenhuma programação para este campo.').waitFor();
+  ok(true, 'na ficha do campo dá para remover o técnico atribuído');
+  await p.getByRole('button', { name: 'Fechar' }).click();
+  await ir('calendario');
+  await p.locator('[data-dia="2026-11-15"]').click();
+  ok(/Colheita iniciada em 15\/11\/2026/.test(await p.getByTestId('dia-detalhe').innerText()), 'o calendário explica por que o campo aparece no dia');
 
   console.log('Internalização');
   await ir('internalizacao');

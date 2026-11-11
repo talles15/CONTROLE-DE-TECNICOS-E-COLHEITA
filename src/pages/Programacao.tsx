@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ControlesProg } from '../components/ProgControles';
 import { descCampo, Modal, ordCampo, SeletorCampo, Sit, TecChip } from '../components/ui';
 import { useDados } from '../lib/dados';
 import { br, diaSemanaLongo, ehIso, somaDias } from '../lib/dates';
 import { baixar, copiar, n0, semAcento } from '../lib/format';
 import { abrirFicha, ir } from '../lib/rota';
-import { ATIVIDADES, type Atividade, type Campo, type Programacao as Prog, type Tecnico } from '../lib/types';
+import { ATIVIDADES, STATUS_PROG, type Atividade, type Campo, type Programacao as Prog, type Tecnico } from '../lib/types';
 import { linkWhats, textoGeral, textoTecnico, type ItemProg } from '../lib/whatsapp';
 
 interface Sugestao {
@@ -92,11 +93,13 @@ export default function Programacao({ params }: { params: Record<string, string>
     );
   }
 
-  const abrirTexto = (t: Tecnico) => setTexto({ titulo: `Mensagem para ${t.nome}`, corpo: textoTecnico(data, t, itensDe(t.id)), tecnico: t });
+  // na programação de hoje o texto leva a hora, para o técnico saber qual é a versão mais recente
+  const horaAgora = () => (data === d.hoje ? new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : undefined);
+  const abrirTexto = (t: Tecnico) => setTexto({ titulo: `Mensagem para ${t.nome}`, corpo: textoTecnico(data, t, itensDe(t.id), horaAgora()), tecnico: t });
   const abrirGeral = () =>
     setTexto({
       titulo: 'Programação geral do dia',
-      corpo: textoGeral(data, d.dados.tecnicos.map((t) => ({ tecnico: t, itens: itensDe(t.id) }))),
+      corpo: textoGeral(data, d.dados.tecnicos.map((t) => ({ tecnico: t, itens: itensDe(t.id) })), horaAgora()),
       tecnico: null,
     });
 
@@ -174,14 +177,16 @@ export default function Programacao({ params }: { params: Record<string, string>
       <div className="quadro">
         {tecnicos.map((t) => {
           const itens = itensDe(t.id);
-          const txt = textoTecnico(data, t, itens);
+          const txt = textoTecnico(data, t, itens, horaAgora());
+          const nAtivos = itens.filter((i) => i.prog.status !== 'cancelado').length;
+          const nFeitos = itens.filter((i) => i.prog.status === 'realizado').length;
           const wa = linkWhats(t.telefone, txt);
           const temAtivos = itens.some((i) => i.prog.status !== 'cancelado');
           return (
             <div className="tec-card" key={t.id} style={{ borderTopColor: t.cor }} data-tecnico={t.nome}>
               <header>
                 <div><b>{t.nome}</b>{!t.ativo && <span className="badge" style={{ marginLeft: 6 }}>inativo</span>}<div className="sub">{[t.funcao, t.cidade_base, t.telefone].filter(Boolean).join(' · ')}</div></div>
-                <span className="badge">{itens.filter((i) => i.prog.status !== 'cancelado').length} campo(s)</span>
+                <span className={'badge' + (nAtivos > 0 && nFeitos === nAtivos ? ' feito' : '')}>{nFeitos > 0 ? `${nFeitos} de ${nAtivos} concluído(s)` : `${nAtivos} campo(s)`}</span>
               </header>
               {itens.length === 0 && <div className="sub" style={{ marginBottom: 8 }}>Sem campos neste dia.</div>}
               {itens.map((it) => <ItemCard key={it.prog.id} it={it} />)}
@@ -203,7 +208,7 @@ export default function Programacao({ params }: { params: Record<string, string>
         <div className="sub" style={{ marginBottom: 10 }}>{br(data)} · {responsaveis.length} atividade(s)</div>
         <div className="tbl-wrap" style={{ maxHeight: 420 }}>
           <table>
-            <thead><tr><th>Campo</th><th>Cliente · Fazenda · Cidade</th><th>Cultivar</th><th className="n">Área (ha)</th><th>Técnico responsável</th><th>Atividade</th><th>Situação</th></tr></thead>
+            <thead><tr><th>Campo</th><th>Cliente · Fazenda · Cidade</th><th>Cultivar</th><th className="n">Área (ha)</th><th>Técnico responsável</th><th>Atividade</th><th>Andamento</th><th>Situação</th></tr></thead>
             <tbody>
               {responsaveis.map(({ p, c, t }) => (
                 <tr key={p.id} className="clic" onClick={() => abrirFicha(c.id)}>
@@ -213,10 +218,11 @@ export default function Programacao({ params }: { params: Record<string, string>
                   <td className="n">{n0(c.area_mapa)}</td>
                   <td><TecChip t={t} /></td>
                   <td>{ATIVIDADES[p.atividade].curto}</td>
+                  <td><span className={'badge' + (p.status === 'realizado' ? ' feito' : '')}>{STATUS_PROG[p.status]}</span></td>
                   <td><Sit s={d.resumos.get(c.id)!.situacao} /></td>
                 </tr>
               ))}
-              {responsaveis.length === 0 && <tr><td colSpan={7} className="empty">Ninguém programado para este dia.</td></tr>}
+              {responsaveis.length === 0 && <tr><td colSpan={8} className="empty">Ninguém programado para este dia.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -246,22 +252,14 @@ const nomeArquivo = (data: string, nome: string): string =>
 function ItemCard({ it }: { it: ItemProg }) {
   const d = useDados();
   const { prog: p, campo: c } = it;
-  const [obs, setObs] = useState(p.observacoes ?? '');
-  useEffect(() => setObs(p.observacoes ?? ''), [p.observacoes]);
   return (
-    <div className={'item' + (p.status === 'cancelado' ? ' cancelado' : '')} data-campo={c.num_campo}>
+    <div className={'item ' + p.status} data-campo={c.num_campo}>
       <div className="l1">
         <b><button className="lk" style={{ background: 'none', border: 0, padding: 0, font: 'inherit', cursor: 'pointer', color: 'inherit', textDecoration: 'underline' }} onClick={() => abrirFicha(c.id)}>{c.num_campo}</button> <span className="muted" style={{ fontWeight: 400 }}>{c.categoria_colher} · {n0(c.area_mapa)} ha</span></b>
         <button className="btn mini perigo" aria-label={`Remover ${c.num_campo}`} onClick={() => void d.excluirProgramacao(p.id)}>Remover</button>
       </div>
       <div className="l2">{descCampo(c)}{c.produto ? ` · ${c.produto}` : ''}</div>
-      <div className="ctl">
-        <select value={p.atividade} aria-label="Atividade" onChange={(e) => void d.atualizarProgramacao(p.id, { atividade: e.target.value as Atividade })}>
-          {(Object.keys(ATIVIDADES) as Atividade[]).map((a) => <option key={a} value={a}>{ATIVIDADES[a].curto}</option>)}
-        </select>
-        <input value={obs} placeholder="Observação para o técnico" aria-label="Observação" onChange={(e) => setObs(e.target.value)}
-          onBlur={() => (obs.trim() || null) !== p.observacoes && void d.atualizarProgramacao(p.id, { observacoes: obs.trim() || null })} />
-      </div>
+      <ControlesProg prog={p} />
     </div>
   );
 }

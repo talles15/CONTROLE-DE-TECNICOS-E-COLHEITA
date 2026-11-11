@@ -150,6 +150,8 @@ export const ATIVIDADES: Record<Atividade, { curto: string; longo: string }> = {
   coleta_pre: { curto: 'Passar pegando pré-colheita', longo: 'PASSAR PEGANDO PRÉ-COLHEITA' },
 };
 
+export const STATUS_PROG: Record<StatusProg, string> = { planejado: 'Planejado', realizado: 'Concluído', cancelado: 'Cancelado' };
+
 export interface Dados {
   tecnicos: Tecnico[];
   campos: Campo[];

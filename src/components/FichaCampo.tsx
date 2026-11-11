@@ -1,18 +1,20 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useDados } from '../lib/dados';
 import { br, dataProvavel, diaSemana, somaDias } from '../lib/dates';
 import { n1, n2, num } from '../lib/format';
 import { haversine } from '../lib/geo';
 import { chaveCampo } from '../lib/importPlanting';
 import { ir } from '../lib/rota';
-import { ATIVIDADES, type Campo, type CampoPlanilha } from '../lib/types';
+import { ATIVIDADES, STATUS_PROG, type Campo, type CampoPlanilha } from '../lib/types';
 import { linkMapa } from '../lib/whatsapp';
+import { ControlesProg } from './ProgControles';
 import { Modal, Sit, TecChip } from './ui';
 
 export function FichaCampo({ campoId, onFechar }: { campoId: string; onFechar: () => void }) {
   const d = useDados();
   const campo = d.campoPorId.get(campoId);
   const [editando, setEditando] = useState(false);
+  const [alterando, setAlterando] = useState<string | null>(null);
   if (!campo) {
     return <Modal titulo="Campo não encontrado" onFechar={onFechar}><p className="sub">Ele pode ter sido excluído.</p></Modal>;
   }
@@ -70,19 +72,29 @@ export function FichaCampo({ campoId, onFechar }: { campoId: string; onFechar: (
           <button className="btn" onClick={() => ir('programacao', { data: somaDias(d.hoje, 1), campo: campo.id })}>Programar técnico</button>
         </div>
         {progs.length === 0 ? <div className="sub">Nenhuma programação para este campo.</div> : (
-          <div className="tbl-wrap" style={{ maxHeight: 220 }}>
+          <div className="tbl-wrap" style={{ maxHeight: 420 }}>
             <table>
-              <thead><tr><th>Data</th><th>Técnico</th><th>Atividade</th><th>Obs.</th></tr></thead>
+              <thead><tr><th>Data</th><th>Técnico</th><th>Atividade</th><th>Andamento</th><th>Obs.</th><th /></tr></thead>
               <tbody>
                 {progs.slice(0, 30).map((p) => {
                   const t = d.tecnicoPorId.get(p.tecnico_id);
                   return (
-                    <tr key={p.id} className={p.status === 'cancelado' ? 'off' : ''}>
-                      <td className="nowrap">{br(p.data)} ({diaSemana(p.data)})</td>
-                      <td>{t ? <TecChip t={t} /> : '—'}</td>
-                      <td>{ATIVIDADES[p.atividade].curto}</td>
-                      <td>{p.observacoes ?? ''}</td>
-                    </tr>
+                    <Fragment key={p.id}>
+                      <tr className={p.status === 'cancelado' ? 'off' : ''}>
+                        <td className="nowrap">{br(p.data)} ({diaSemana(p.data)})</td>
+                        <td>{t ? <TecChip t={t} /> : '—'}</td>
+                        <td>{ATIVIDADES[p.atividade].curto}</td>
+                        <td><span className={'badge' + (p.status === 'realizado' ? ' feito' : '')}>{STATUS_PROG[p.status]}</span></td>
+                        <td>{p.observacoes ?? ''}</td>
+                        <td className="n nowrap">
+                          <button className="btn mini" onClick={() => setAlterando(alterando === p.id ? null : p.id)}>{alterando === p.id ? 'Pronto' : 'Alterar'}</button>{' '}
+                          <button className="btn mini perigo" aria-label={`Remover programação de ${br(p.data)}`} onClick={() => void d.excluirProgramacao(p.id)}>Remover</button>
+                        </td>
+                      </tr>
+                      {alterando === p.id && (
+                        <tr><td colSpan={6}><div className="item" style={{ margin: 0 }}><ControlesProg prog={p} /></div></td></tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
