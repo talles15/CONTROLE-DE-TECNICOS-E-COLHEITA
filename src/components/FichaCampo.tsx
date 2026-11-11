@@ -261,8 +261,10 @@ export function FormCampo({ campo, onFim }: { campo?: Campo; onFim: () => void }
   async function salvar() {
     const t = (k: string) => f[k].trim() || null;
     if (!t('num_campo')) return d.avisar('Informe o nº do campo.', 'erro');
-    const lat = num(f.latitude);
-    const lng = num(f.longitude);
+    // aceita o par copiado do Google Maps ("-18.792100, -52.615300") colado no campo da latitude
+    const par = /^\s*(-?\d{1,2}\.\d+)\s*[,;]\s*(-?\d{1,3}\.\d+)\s*$/.exec(f.latitude);
+    const lat = par ? Number(par[1]) : num(f.latitude);
+    const lng = par ? Number(par[2]) : num(f.longitude);
     if ((lat == null) !== (lng == null)) return d.avisar('Preencha latitude e longitude (ou deixe as duas em branco).', 'erro');
     if (lat != null && (Math.abs(lat) > 90 || Math.abs(lng!) > 180)) return d.avisar('Coordenada inválida. Use graus decimais, ex.: -17.494824 e -51.600491.', 'erro');
     const plantio = t('data_plantio');
@@ -312,7 +314,7 @@ export function FormCampo({ campo, onFim }: { campo?: Campo; onFim: () => void }
         {inp('data_plantio', 'Data de plantio', 'date')}
         {inp('ciclo', 'Ciclo (dias)', 'number', { min: 1, step: '1' })}
         {inp('data_colheita_prevista', 'Colheita prevista', 'date')}
-        {inp('latitude', 'Latitude (graus decimais)', 'text', { placeholder: '-17.494824', inputMode: 'decimal' })}
+        {inp('latitude', 'Latitude (ou o par do Google Maps)', 'text', { placeholder: '-17.494824  ou  -17.494824, -51.600491' })}
         {inp('longitude', 'Longitude (graus decimais)', 'text', { placeholder: '-51.600491', inputMode: 'decimal' })}
         {campo && <div className="campo largo">
           <label htmlFor="fc_obs">Observações</label>

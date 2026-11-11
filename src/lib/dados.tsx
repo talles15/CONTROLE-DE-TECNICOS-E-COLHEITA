@@ -163,7 +163,13 @@ export function ProvedorDados({ store, children, onSair }: { store: Store; child
       return !!r;
     },
     importarCampos: async (cs) => {
-      const r = await tentar(() => store.importarCampos(cs));
+      // planilha sem coordenada não apaga a que foi preenchida aqui no sistema
+      const atuais = new Map(dados.campos.map((c) => [c.chave, c]));
+      const comCoord = cs.map((c) => {
+        const a = atuais.get(c.chave);
+        return c.latitude == null && a?.latitude != null && a.longitude != null ? { ...c, latitude: a.latitude, longitude: a.longitude } : c;
+      });
+      const r = await tentar(() => store.importarCampos(comCoord));
       if (r) mut((d) => ({ ...d, campos: troca(d.campos, r) }));
       return r;
     },

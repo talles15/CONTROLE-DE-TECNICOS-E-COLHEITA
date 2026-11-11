@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
-import { BarraFiltros, passa, useFiltros, valorDim } from '../components/ui';
+import { BarraFiltros, ordCampo, passa, SeletorCampo, Sit, useFiltros, valorDim } from '../components/ui';
 import { useDados } from '../lib/dados';
 import { baixar, csv, n0, n1, num } from '../lib/format';
 import { faixaDe, haversine, posicoes, rotulosFaixas, volumePorFaixa, type ItemVolume } from '../lib/geo';
@@ -48,6 +48,7 @@ export default function Mapa() {
   const [soPendente, setSoPendente] = useState(false);
   const [aproximar, setAproximar] = useState(false);
   const [sel, setSel] = useState<Selecao | null>(null);
+  const [foco, setFoco] = useState<{ id: string; n: number } | null>(null);
 
   const ativos = useMemo(() => d.dados.campos.filter((c) => c.ativo), [d.dados.campos]);
 
@@ -89,6 +90,7 @@ export default function Mapa() {
   );
 
   const comPos = pontos.filter((p) => p.dist != null);
+  const semPosicaoAtivos = pontos.filter((p) => p.dist == null && p.sit !== 'plantado').sort((a, b) => ordCampo(a.campo, b.campo));
   const volPos = comPos.reduce((s, p) => s + p.valor, 0);
   const volTot = pontos.reduce((s, p) => s + p.valor, 0);
   const distMedia = volPos > 0 ? comPos.reduce((s, p) => s + p.valor * p.dist!, 0) / volPos : 0;
@@ -155,7 +157,34 @@ export default function Mapa() {
       </div>
 
       <section className="card">
-        <MapaLeaflet pontos={pontos} naSelecao={naSelecao} temSel={!!sel} ubs={ubs} faixas={faixas} />
+        <div className="form larga" style={{ marginBottom: 12 }}>
+          <div className="campo" style={{ gridColumn: 'span 2' }}>
+            <label>Localizar campo no mapa</label>
+            <SeletorCampo campos={ativos} valor={foco?.id ?? null} placeholder="Digite o nº do campo, agricultor ou fazenda…"
+              onEscolher={(id) => {
+                if (!id) return setFoco(null);
+                const p = pontos.find((x) => x.campo.id === id);
+                if (!p) return d.avisar('Esse campo está fora dos filtros atuais. Limpe os filtros para localizá-lo.', 'erro');
+                if (p.lat == null) {
+                  d.avisar(`O campo ${p.campo.num_campo} não tem coordenada, por isso não aparece no mapa. Preencha na ficha do campo.`, 'erro');
+                  return abrirFicha(id);
+                }
+                setFoco({ id, n: Date.now() });
+              }} />
+          </div>
+        </div>
+        {semPosicaoAtivos.length > 0 && (
+          <div className="caixa-info atencao" data-testid="sem-coordenada">
+            <b>{semPosicaoAtivos.length} campo(s) com dessecação ou colheita não aparecem no mapa por falta de coordenada:</b>{' '}
+            {semPosicaoAtivos.map((p) => (
+              <button key={p.campo.id} className="btn mini" style={{ margin: '2px 4px 2px 0' }} onClick={() => abrirFicha(p.campo.id)} title="Abrir a ficha para preencher a coordenada">
+                {p.campo.num_campo} · <Sit s={p.sit} />
+              </button>
+            ))}
+            <div className="sub" style={{ marginTop: 4 }}>Clique no campo, depois em “Editar dados do campo”, e cole a latitude e a longitude (pode ser o par copiado do Google Maps).</div>
+          </div>
+        )}
+        <MapaLeaflet pontos={pontos} naSelecao={naSelecao} temSel={!!sel} ubs={ubs} faixas={faixas} foco={foco} />
         <div className="legend" style={{ marginTop: 10 }}>
           {ORDEM_SITUACAO.map((s) => <span key={s}><i className="bola" style={{ background: CORES[s] }} />{SITUACOES[s].rotulo}</span>)}
           <span><i style={{ background: '#d03b3b', transform: 'rotate(45deg)' }} />{ubs.nome}</span>
@@ -243,17 +272,19 @@ export default function Mapa() {
   );
 }
 
-function MapaLeaflet({ pontos, naSelecao, temSel, ubs, faixas }: {
+function MapaLeaflet({ pontos, naSelecao, temSel, ubs, faixas, foco }: {
   pontos: Ponto[];
   naSelecao: (p: Ponto) => boolean;
   temSel: boolean;
   ubs: { nome: string; lat: number; lng: number };
   faixas: number[];
+  foco: { id: string; n: number } | null;
 }) {
   const el = useRef<HTMLDivElement>(null);
   const mapa = useRef<L.Map | null>(null);
   const camadas = useRef<{ aneis: L.LayerGroup; campos: L.LayerGroup } | null>(null);
   const enquadrado = useRef('');
+  const marcadores = useRef(new Map<string, L.CircleMarker>());
 
   useEffect(() => {
     if (!el.current || mapa.current) return;
@@ -303,8 +334,11 @@ function MapaLeaflet({ pontos, naSelecao, temSel, ubs, faixas }: {
     const m = mapa.current;
     if (!c || !m) return;
     c.campos.clearLayers();
+    marcadores.current.clear();
     const limites: L.LatLngTuple[] = [[ubs.lat, ubs.lng]];
-    for (const p of pontos) {
+    // campos com dessecação/colheita são desenhados por último, para ficarem por cima dos demais
+    const ordem = [...pontos].sort((a, b) => ORDEM_SITUACAO.indexOf(a.sit) - ORDEM_SITUACAO.indexOf(b.sit));
+    for (const p of ordem) {
       if (p.lat == null || p.lng == null) continue;
       const dentro = naSelecao(p);
       limites.push([p.lat, p.lng]);
@@ -327,6 +361,7 @@ function MapaLeaflet({ pontos, naSelecao, temSel, ubs, faixas }: {
           `<button data-ficha="${esc(cp.id)}">Abrir ficha do campo</button>`,
       );
       mk.bindTooltip(cp.num_campo, { direction: 'top', offset: [0, -6] });
+      marcadores.current.set(cp.id, mk);
       if (dentro && temSel) mk.addTo(c.campos).bringToFront();
       else mk.addTo(c.campos);
     }
@@ -337,6 +372,15 @@ function MapaLeaflet({ pontos, naSelecao, temSel, ubs, faixas }: {
       m.fitBounds(L.latLngBounds(limites).pad(0.08), { maxZoom: 11 });
     }
   }, [pontos, naSelecao, temSel, ubs.lat, ubs.lng, ubs.nome]);
+
+  // "Localizar campo": aproxima e abre o balão do campo escolhido
+  useEffect(() => {
+    const mk = foco ? marcadores.current.get(foco.id) : null;
+    if (!mk || !mapa.current) return;
+    mapa.current.setView(mk.getLatLng(), Math.max(mapa.current.getZoom(), 12));
+    mk.bringToFront();
+    mk.openPopup();
+  }, [foco]);
 
   return <div className="mapa" ref={el} data-testid="mapa" />;
 }
