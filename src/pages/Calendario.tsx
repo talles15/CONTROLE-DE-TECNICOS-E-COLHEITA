@@ -15,6 +15,8 @@ const CAMADAS: Record<Camada, { rotulo: string; cor: string }> = {
   prev: { rotulo: 'Previsão da planilha', cor: 'var(--st-previsao)' },
 };
 const ORDEM: Camada[] = ['colh', 'prog', 'dess', 'prev'];
+/** campos mostrados em cada dia do calendário; o restante vira "+N campos" (o clique no dia lista todos) */
+const MAX_POR_DIA = 4;
 
 const TITULOS: Record<TipoAlerta, string> = {
   atrasado: 'Atrasados — data provável passou',
@@ -167,15 +169,25 @@ export default function Calendario() {
                   <span>{Number(dia.slice(8))}</span>
                   {nProg > 0 && <span className="tecs" title="Atividades programadas para técnicos">{nProg} prog.</span>}
                 </span>
-                {e && ORDEM.filter((c) => vis[c] && e[c].size).map((c) => {
-                  const lista = [...e[c].values()].sort(ordCampo);
+                {(() => {
+                  if (!e) return null;
+                  // um bloco por campo: nº do campo + cultivar, e o agricultor na linha de baixo
+                  const itens = ORDEM.filter((c) => vis[c]).flatMap((c) => [...e[c].values()].sort(ordCampo).map((campo) => ({ c, campo })));
+                  const mostra = itens.slice(0, MAX_POR_DIA);
+                  const resto = itens.length - mostra.length;
                   return (
-                    <span key={c} className={'ev ' + c} title={`${CAMADAS[c].rotulo}: ${lista.map((x) => x.num_campo).join(', ')}`}>
-                      <b>{lista.length}</b>
-                      <span className="nomes">{lista.slice(0, 3).map((x) => x.num_campo).join(', ')}{lista.length > 3 ? '…' : ''}</span>
-                    </span>
+                    <>
+                      {mostra.map(({ c, campo }) => (
+                        <span key={c + campo.id} className={'ev ' + c}
+                          title={`${CAMADAS[c].rotulo}: ${campo.num_campo} · ${campo.produto ?? 'sem cultivar'} · ${campo.cliente ?? 'sem agricultor'}`}>
+                          <span className="l1"><b>{campo.num_campo}</b>{campo.produto && <span className="det"> · {campo.produto}</span>}</span>
+                          {campo.cliente && <span className="l2">{campo.cliente}</span>}
+                        </span>
+                      ))}
+                      {resto > 0 && <span className="ev mais">+{resto} campo{resto > 1 ? 's' : ''}</span>}
+                    </>
                   );
-                })}
+                })()}
               </button>
             );
           })}
