@@ -1,0 +1,13 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+# Planilhas e exportações nunca entram no repositório (dados de clientes)
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+e2e/saida
+.vercel
+*.local.test.ts
