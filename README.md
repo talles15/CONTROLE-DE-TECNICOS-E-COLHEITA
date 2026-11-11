@@ -58,8 +58,11 @@ ainda não está liberado.
 
    | Nome | Valor |
    |---|---|
-   | `VITE_SUPABASE_URL` | a *Project URL* do passo 5 |
-   | `VITE_SUPABASE_ANON_KEY` | a *Publishable key* (ou *anon / public*) do passo 5 |
+   | `SUPABASE_URL` | a *Project URL* do passo 5 |
+   | `SUPABASE_PUBLISHABLE_KEY` | a *Publishable key* (ou *anon / public*) do passo 5 |
+
+   São os mesmos nomes que o Supabase mostra no botão **Connect**. Também funcionam `VITE_SUPABASE_URL` e
+   `VITE_SUPABASE_ANON_KEY`. **Não cadastre a `SUPABASE_SECRET_KEY`.**
 
 3. Clique em **Deploy**. A Vercel mostra o endereço do sistema (algo como `https://controle-de-tecnicos-e-colheita.vercel.app`).
    A cada alteração enviada ao repositório, ela publica de novo sozinha.
