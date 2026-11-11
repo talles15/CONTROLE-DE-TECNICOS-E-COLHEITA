@@ -40,10 +40,12 @@ Os nomes dos menus podem mudar um pouco conforme a versão dos painéis.
 3. **Crie as tabelas:** *SQL Editor → New query*, cole todo o conteúdo de
    [`supabase/migrations/0001_schema.sql`](supabase/migrations/0001_schema.sql) e clique em **Run**.
    Na primeira execução, os usuários que você acabou de criar já ficam liberados para usar o sistema.
-4. **Desligue o cadastro público:** *Authentication → Sign In / Providers* → desmarque **Allow new users to sign up**.
-5. Copie as duas informações de conexão em *Project Settings → API* (ou *API Keys*):
+4. **Desligue o cadastro público:** *Authentication → Sign In / Providers* → desligue **Allow new users to sign up** e salve.
+   (Em algumas versões do painel a opção fica dentro do provedor **Email**.)
+5. Copie as duas informações de conexão no botão **Connect** (topo da tela) ou em *Settings → API Keys*:
    - **Project URL** (ex.: `https://abcdefgh.supabase.co`);
-   - chave **anon / public** (ou *Publishable key*). **Nunca** use a chave `service_role`/*secret* aqui.
+   - **Publishable key** (começa com `sb_publishable_…`). Em projetos antigos ela se chama **anon / public** e fica na
+     aba *Legacy API Keys*. **Nunca** use a chave *secret* / `service_role` aqui.
 
 **Para liberar outra pessoa depois:** crie o usuário (passo 2) e inclua o e-mail dela em
 *Table Editor → usuarios_liberados → Insert row*. Sem isso ela consegue fazer login, mas o sistema avisa que o e-mail
@@ -57,7 +59,7 @@ ainda não está liberado.
    | Nome | Valor |
    |---|---|
    | `VITE_SUPABASE_URL` | a *Project URL* do passo 5 |
-   | `VITE_SUPABASE_ANON_KEY` | a chave *anon / public* do passo 5 |
+   | `VITE_SUPABASE_ANON_KEY` | a *Publishable key* (ou *anon / public*) do passo 5 |
 
 3. Clique em **Deploy**. A Vercel mostra o endereço do sistema (algo como `https://controle-de-tecnicos-e-colheita.vercel.app`).
    A cada alteração enviada ao repositório, ela publica de novo sozinha.
