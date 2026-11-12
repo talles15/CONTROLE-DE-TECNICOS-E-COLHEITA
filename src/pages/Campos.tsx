@@ -8,7 +8,7 @@ import { abrirFicha, ir } from '../lib/rota';
 import { ORDEM_SITUACAO, SITUACOES, type Situacao } from '../lib/status';
 import type { Campo } from '../lib/types';
 
-type Col = 'campo' | 'cliente' | 'cidade' | 'produto' | 'area' | 'prev' | 'dess' | 'prov' | 'sit';
+type Col = 'campo' | 'cliente' | 'cidade' | 'produto' | 'area' | 'prev' | 'dess' | 'prov' | 'sit' | 'intern' | 'aprov';
 
 export default function Campos() {
   const d = useDados();
@@ -44,6 +44,8 @@ export default function Campos() {
         case 'dess': return r.ultimaDessecacao ?? '9';
         case 'prov': return r.provavel ?? '9';
         case 'sit': return ORDEM_SITUACAO.indexOf(r.situacao);
+        case 'intern': return d.reais.get(c.id)?.internSc ?? 0;
+        case 'aprov': return d.reais.get(c.id)?.aprovPct ?? -1;
         default: return '';
       }
     };
@@ -61,7 +63,7 @@ export default function Campos() {
       return (r || ordCampo(a, b)) * (ord.desc ? -1 : 1);
     });
     return f;
-  }, [d.dados.campos, d.resumos, busca, sit, cidade, inativos, ord]);
+  }, [d.dados.campos, d.resumos, d.reais, busca, sit, cidade, inativos, ord]);
 
   const th = (col: Col, rotulo: string, n = false) => (
     <th className={'ord' + (n ? ' n' : '')} onClick={() => setOrd({ col, desc: ord.col === col ? !ord.desc : false })}>
@@ -73,11 +75,15 @@ export default function Campos() {
     const linhas: (string | number | null)[][] = [[
       'Campo', 'Categoria a colher', 'Cliente', 'Fazenda', 'Cidade', 'UF', 'Cultivar', 'Área MAPA (ha)', 'Colheita prevista (planilha)',
       'Última dessecação', 'Área dessecada (ha)', 'Colheita provável', 'Início colheita', 'Fim colheita', 'Situação',
+      'Colhido (sc)', 'Internalizado (sc)', 'Produtividade do produtor (sc/ha)', 'Potencial (sc)', 'Aproveitamento para semente (%)', 'Área ainda a colher (ha)',
     ]];
     for (const c of lista) {
       const r = d.resumos.get(c.id)!;
+      const x = d.reais.get(c.id)!;
       linhas.push([c.num_campo, c.categoria_colher, c.cliente, c.propriedade, c.cidade, c.uf, c.produto, c.area_mapa, br(c.data_colheita_prevista),
-        br(r.ultimaDessecacao), r.areaDessecada || null, br(r.provavel), br(c.colheita_inicio), br(c.colheita_fim), SITUACOES[r.situacao].rotulo]);
+        br(r.ultimaDessecacao), r.areaDessecada || null, br(r.provavel), br(c.colheita_inicio), br(c.colheita_fim), SITUACOES[r.situacao].rotulo,
+        x.lancamentos.length ? Math.round(x.colhidoSc) : null, x.lancamentos.length ? Math.round(x.internSc) : null, c.prod_real_sc_ha,
+        x.lancamentos.length ? Math.round(x.potencialSc) : null, x.aprovPct != null ? +x.aprovPct.toFixed(1) : null, +x.areaRestante.toFixed(1)]);
     }
     baixar(`campos_${d.hoje}.csv`, csv(linhas), 'text/csv;charset=utf-8');
   }
@@ -87,7 +93,7 @@ export default function Campos() {
       <div className="card-head">
         <div>
           <h2>Campos</h2>
-          <div className="sub">{n0(lista.length)} de {n0(d.dados.campos.length)} campos · {n0(lista.reduce((s, c) => s + c.area_mapa, 0))} ha. Clique em um campo para registrar dessecação, colheita ou programar técnico.</div>
+          <div className="sub">{n0(lista.length)} de {n0(d.dados.campos.length)} campos · {n0(lista.reduce((s, c) => s + c.area_mapa, 0))} ha. Clique em um campo para registrar dessecação, colheita, volume colhido ou programar técnico.</div>
         </div>
         <div className="btns">
           <button className="btn primary" onClick={() => setNovo(true)}>+ Novo campo</button>
@@ -113,6 +119,7 @@ export default function Campos() {
             <tr>
               {th('campo', 'Campo')}{th('cliente', 'Cliente · Fazenda')}{th('cidade', 'Cidade')}{th('produto', 'Cultivar')}
               {th('area', 'Área (ha)', true)}{th('prev', 'Prev. planilha')}{th('dess', 'Dessecação')}{th('prov', 'Colheita provável')}{th('sit', 'Situação')}
+              {th('intern', 'Internalizado (sc)', true)}{th('aprov', 'Aprov. semente', true)}
               <th>Técnico</th>
             </tr>
           </thead>
@@ -120,6 +127,7 @@ export default function Campos() {
             {lista.map((c) => {
               const r = d.resumos.get(c.id)!;
               const tecs = tecDe.get(c.id) ?? [];
+              const x = d.reais.get(c.id)!;
               return (
                 <tr key={c.id} className={'clic' + (c.ativo ? '' : ' off')} onClick={() => abrirFicha(c.id)}>
                   <td className="nowrap"><b>{c.num_campo}</b> <span className="muted">{c.categoria_colher}</span></td>
@@ -131,11 +139,13 @@ export default function Campos() {
                   <td className="nowrap">{r.ultimaDessecacao ? <>{br(r.ultimaDessecacao)}{r.areaDessecada ? <span className="muted"> · {n0(r.areaDessecada)} ha</span> : null}</> : <span className="muted">—</span>}</td>
                   <td className="nowrap">{r.provavel ? <b>{br(r.provavel)}</b> : <span className="muted">—</span>}</td>
                   <td><Sit s={r.situacao} /></td>
+                  <td className="n">{x.lancamentos.length ? n0(x.internSc) : <span className="muted">—</span>}</td>
+                  <td className="n">{x.aprovPct != null ? <>{n0(x.aprovPct)}%{x.prodOrigem === 'estimada' && <span className="muted" title="Sem a produtividade do produtor: potencial estimado"> *</span>}</> : <span className="muted">—</span>}</td>
                   <td>{tecs.map((t, i) => { const x = d.tecnicoPorId.get(t.id); return x ? <TecChip key={i} t={x} extra={t.quando} /> : null; })}</td>
                 </tr>
               );
             })}
-            {lista.length === 0 && <tr><td colSpan={10} className="empty">Nenhum campo encontrado.</td></tr>}
+            {lista.length === 0 && <tr><td colSpan={12} className="empty">Nenhum campo encontrado.</td></tr>}
           </tbody>
         </table>
       </div>

@@ -75,6 +75,8 @@ export interface CampoControle {
   ov_ha_dia: number | null;
   ov_sc_ha: number | null;
   ov_aprov: number | null;
+  /** produtividade geral da área informada pelo produtor (sc/ha) */
+  prod_real_sc_ha: number | null;
   ativo: boolean;
   observacoes: string | null;
 }
@@ -105,6 +107,49 @@ export interface Programacao {
   created_at?: string;
 }
 
+/** Lançamento de volume colhido em um dia (pode haver mais de um por dia, ex.: por carga). */
+export interface ColheitaDia {
+  id: string;
+  campo_id: string;
+  data: string;
+  /** volume colhido no dia e entregue na UBS (kg) */
+  colhido_kg: number;
+  /** volume aprovado e internalizado na UBS (kg); null = todo o volume colhido foi aprovado */
+  aprovado_kg: number | null;
+  /** área colhida no dia (ha), opcional */
+  area_ha: number | null;
+  observacoes: string | null;
+  created_at?: string;
+}
+
+/** Meta de produção de uma cultivar (aba Metas). */
+export interface MetaCultivar {
+  id: string;
+  cultivar: string;
+  /** semente pronta planejada, em sacos de 200 mil sementes (big bags × sacos por big bag) */
+  meta_sc200: number | null;
+  /** peso de mil sementes (g); null = usa o padrão da aba */
+  pms_g: number | null;
+  /** rendimento do beneficiamento na UBS (%); null = usa o padrão da aba */
+  rend_ubs: number | null;
+  /** meta de internalização digitada à mão (sc 60 kg); quando preenchida, vale no lugar do cálculo */
+  meta_intern_sc: number | null;
+  /** big bags já prontos: beneficiados na UBS e em tolling */
+  bb_ubs: number | null;
+  bb_tolling: number | null;
+  observacoes: string | null;
+  created_at?: string;
+}
+
+export interface ParametrosMetas {
+  /** sacos de 200 mil sementes em um big bag */
+  sc200PorBB: number;
+  /** peso de mil sementes padrão (g) */
+  pms: number;
+  /** rendimento padrão do beneficiamento: semente pronta ÷ matéria-prima internalizada (%) */
+  rendUbs: number;
+}
+
 export type AreaBase = 'area_mapa' | 'area_projetada' | 'area_real';
 
 export interface Parametros {
@@ -124,6 +169,7 @@ export interface Config {
   ubs: { nome: string; lat: number; lng: number };
   faixas: number[];
   avisoDias: number;
+  metas: ParametrosMetas;
 }
 
 export const CONFIG_PADRAO: Config = {
@@ -131,6 +177,7 @@ export const CONFIG_PADRAO: Config = {
   ubs: { nome: 'UBS Rio Verde', lat: -17.494824, lng: -51.600491 },
   faixas: [10, 20, 50, 100, 200, 300],
   avisoDias: 1,
+  metas: { sc200PorBB: 25, pms: 180, rendUbs: 75 },
 };
 
 export const CONTROLE_PADRAO: CampoControle = {
@@ -141,6 +188,7 @@ export const CONTROLE_PADRAO: CampoControle = {
   ov_ha_dia: null,
   ov_sc_ha: null,
   ov_aprov: null,
+  prod_real_sc_ha: null,
   ativo: true,
   observacoes: null,
 };
@@ -157,5 +205,9 @@ export interface Dados {
   campos: Campo[];
   dessecacoes: Dessecacao[];
   programacoes: Programacao[];
+  colheitas: ColheitaDia[];
+  metas: MetaCultivar[];
   config: Config;
+  /** true quando o banco ainda não recebeu supabase/migrations/0002 (volume colhido e metas ficam desligados) */
+  faltaMigracao?: boolean;
 }

@@ -54,19 +54,21 @@ export const descCampo = (c: Campo): string =>
 export const ordCampo = (a: Campo, b: Campo): number =>
   a.num_campo.localeCompare(b.num_campo, 'pt', { numeric: true }) || (a.categoria_colher ?? '').localeCompare(b.categoria_colher ?? '');
 
-/** Caixa de busca para escolher um campo. */
-export function SeletorCampo({ campos, valor, onEscolher, placeholder }: {
+/** Caixa de busca para escolher um campo. Com `varios`, a lista fica aberta para escolher um campo atrás do outro. */
+export function SeletorCampo({ campos, valor, onEscolher, placeholder, varios }: {
   campos: Campo[];
   valor: string | null;
   onEscolher: (id: string | null) => void;
   placeholder?: string;
+  varios?: boolean;
 }) {
   const atual = campos.find((c) => c.id === valor) ?? null;
   const [texto, setTexto] = useState('');
   const [aberto, setAberto] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const f = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setAberto(false);
+    // composedPath: a opção clicada pode sair da lista (seleção de vários) antes deste aviso chegar
+    const f = (e: MouseEvent) => ref.current && !e.composedPath().includes(ref.current) && setAberto(false);
     document.addEventListener('mousedown', f);
     return () => document.removeEventListener('mousedown', f);
   }, []);
@@ -85,6 +87,9 @@ export function SeletorCampo({ campos, valor, onEscolher, placeholder }: {
         placeholder={placeholder ?? 'Buscar campo, cliente, fazenda…'}
         value={aberto ? texto : atual ? `${atual.num_campo} — ${descCampo(atual)}` : texto}
         onFocus={() => { setAberto(true); setTexto(''); }}
+        onClick={() => setAberto(true)}
+        onBlur={() => setAberto(false)}
+        onKeyDown={(e) => e.key === 'Escape' && setAberto(false)}
         onChange={(e) => { setTexto(e.target.value); setAberto(true); if (valor) onEscolher(null); }}
         aria-label="Campo"
       />
@@ -93,7 +98,7 @@ export function SeletorCampo({ campos, valor, onEscolher, placeholder }: {
           {opcoes.length === 0 && <div className="empty">Nenhum campo encontrado.</div>}
           {opcoes.map((c) => (
             <button type="button" key={c.id} className={'op' + (c.id === valor ? ' at' : '')}
-              onMouseDown={(e) => { e.preventDefault(); onEscolher(c.id); setAberto(false); setTexto(''); }}>
+              onMouseDown={(e) => { e.preventDefault(); onEscolher(c.id); setAberto(!!varios); setTexto(''); }}>
               <b>{c.num_campo}</b> · {c.categoria_colher ?? '—'} · {c.produto ?? '—'}
               <small>{descCampo(c)}</small>
             </button>
@@ -194,5 +199,18 @@ export function BarraFiltros({ campos, filtros, onMudar }: { campos: Campo[]; fi
       })}
       {Object.values(filtros).some(Boolean) && <button className="btn" onClick={() => onMudar({})}>Limpar filtros</button>}
     </div>
+  );
+}
+
+/** Campo editável da tabela: grava ao sair da célula (ou Enter). */
+export function CelulaEd({ tipo, valor, placeholder, onGravar, rotulo }: { tipo: 'date' | 'number'; valor: string | number | null; placeholder?: string; onGravar: (v: string) => void; rotulo: string }) {
+  const base = valor == null ? '' : String(valor);
+  const [v, setV] = useState(base);
+  useEffect(() => setV(base), [base]);
+  return (
+    <input className={'ed' + (base ? ' set' : '')} type={tipo} value={v} placeholder={placeholder} aria-label={rotulo} step={tipo === 'number' ? 'any' : undefined} min={tipo === 'number' ? 0 : undefined}
+      onChange={(e) => { setV(e.target.value); if (tipo === 'date') onGravar(e.target.value); }}
+      onBlur={() => tipo === 'number' && v !== base && onGravar(v)}
+      onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
   );
 }

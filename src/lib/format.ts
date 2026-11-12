@@ -1,10 +1,13 @@
 const nf0 = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
 const nf2 = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 });
+const nf2f = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 
 export const n0 = (v: number): string => nf0.format(v);
 export const n1 = (v: number): string => nf1.format(v);
 export const n2 = (v: number): string => nf2.format(v);
+/** sempre com 2 casas, como nos painéis de acompanhamento */
+export const n2f = (v: number): string => nf2f.format(v);
 
 export function num(v: unknown): number | null {
   if (v === '' || v == null) return null;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as RME } from 'react';
-import { BarraFiltros, passa, useFiltros, valorDim } from '../components/ui';
+import { BarraFiltros, CelulaEd, passa, useFiltros, valorDim } from '../components/ui';
 import { useDados } from '../lib/dados';
 import { br, brCurto, diaSemana, diaSemanaN, dn, iso, segunda } from '../lib/dates';
 import { baixar, csv, n0, n1, num, semAcento } from '../lib/format';
@@ -55,6 +55,9 @@ export default function Internalizacao() {
   const ex100 = 100 * P.scHa;
   const ex = (ex100 * P.aprov) / 100;
   const diaSel = selDia == null ? null : (dias.find((x) => x.k === selDia) ?? null);
+  // realizado: volume aprovado e internalizado lançado nas fichas dos campos filtrados
+  const realizado = filtrados.reduce((s, c) => s + (d.reais.get(c.id)?.internSc ?? 0), 0);
+  const comVolume = filtrados.filter((c) => (d.reais.get(c.id)?.lancamentos.length ?? 0) > 0).length;
 
   const numP = (k: keyof Parametros, min?: number) => ({
     type: 'number' as const,
@@ -127,6 +130,7 @@ export default function Internalizacao() {
         <Kpi k="Área em colheita" v={n0(area) + ' ha'} s={`${unidades.length} campos`} />
         <Kpi k="Sacos potenciais (100%)" v={n0(bruto) + ' sc'} s={`${n0(P.scHa)} sc/ha (média do painel)`} />
         <Kpi k="Sacos aproveitados" v={n0(total) + ' sc'} s={`${n1((total * P.kg) / 1000)} t · aproveitamento ${n0(bruto ? (total / bruto) * 100 : 0)}%`} cls="hl" />
+        <Kpi k="Internalizado real (UBS)" v={n0(realizado) + ' sc'} s={comVolume ? `${n0(total ? (realizado / total) * 100 : 0)}% do estimado · ${comVolume} campo(s) com volume lançado` : 'lance o volume colhido na ficha do campo'} />
         <Kpi k="Período de colheita" v={dias.length ? `${brsk(dias[0].k)} → ${brsk(dias[dias.length - 1].k)}` : '—'} s={dias.length ? `${dias.length} dias corridos` : ''} />
         <Kpi k="Pico diário" v={pico ? n0(pico.aprov) + ' sc' : '—'} s={pico ? `${brk(pico.k)} (${wdk(pico.k)}) · ${n0(pico.ha)} ha` : ''} />
         <Kpi k="Média diária" v={n0(dias.length ? total / dias.length : 0) + ' sc/dia'} s={`50% até ${d50 ? brsk(d50.k) : '—'} · 90% até ${d90 ? brsk(d90.k) : '—'}`} />
@@ -420,18 +424,5 @@ function TabelaCampos({ campos, unidades, busca, P }: { campos: Campo[]; unidade
         </tbody>
       </table>
     </div>
-  );
-}
-
-/** Campo editável da tabela: grava ao sair da célula (ou Enter). */
-function CelulaEd({ tipo, valor, placeholder, onGravar, rotulo }: { tipo: 'date' | 'number'; valor: string | number | null; placeholder?: string; onGravar: (v: string) => void; rotulo: string }) {
-  const base = valor == null ? '' : String(valor);
-  const [v, setV] = useState(base);
-  useEffect(() => setV(base), [base]);
-  return (
-    <input className={'ed' + (base ? ' set' : '')} type={tipo} value={v} placeholder={placeholder} aria-label={rotulo} step={tipo === 'number' ? 'any' : undefined} min={tipo === 'number' ? 0 : undefined}
-      onChange={(e) => { setV(e.target.value); if (tipo === 'date') onGravar(e.target.value); }}
-      onBlur={() => tipo === 'number' && v !== base && onGravar(v)}
-      onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
   );
 }

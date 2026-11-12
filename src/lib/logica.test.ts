@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { dataProvavel, difDias, dn, iso, somaDias } from './dates';
 import { faixaDe, haversine, posicoes, rotulosFaixas, volumePorFaixa } from './geo';
+import { chaveCultivar, metaInternDe, resumirMetas } from './metas';
 import { inicioColheita, projetar, sacosCampo } from './projecao';
+import { agruparColheitas, paraKg, realCampo } from './realizado';
 import { gerarAlertas, resumoCampo } from './status';
-import { DemoStore } from './store';
-import { CONFIG_PADRAO, CONTROLE_PADRAO, type Campo, type Dados, type Dessecacao, type Programacao, type Tecnico } from './types';
+import { DemoStore, SEM_TABELAS, SupabaseStore } from './store';
+import {
+  CONFIG_PADRAO, CONTROLE_PADRAO,
+  type Campo, type ColheitaDia, type Dados, type Dessecacao, type MetaCultivar, type Programacao, type Tecnico,
+} from './types';
 import { linkWhats, telefoneWhats, textoGeral, textoTecnico } from './whatsapp';
 
 const P = CONFIG_PADRAO.params;
@@ -200,7 +205,7 @@ describe('projeção de internalização', () => {
 });
 
 describe('armazenamento de demonstração', () => {
-  const vazio = (): Dados => ({ tecnicos: [], campos: [], dessecacoes: [], programacoes: [], config: structuredClone(CONFIG_PADRAO) });
+  const vazio = (): Dados => ({ tecnicos: [], campos: [], dessecacoes: [], programacoes: [], colheitas: [], metas: [], config: structuredClone(CONFIG_PADRAO) });
   it('reimportar atualiza a planilha e preserva o controle operacional', async () => {
     const s = new DemoStore(null, vazio());
     const { id: _i, ...planilha } = campo();
@@ -240,5 +245,215 @@ describe('armazenamento de demonstração', () => {
     const d = await s.carregar();
     expect(d.campos.length).toBeGreaterThan(20);
     expect(d.campos.every((c) => /Demonstração/.test(c.cliente ?? ''))).toBe(true);
+  });
+});
+
+describe('colheita real do campo', () => {
+  let n = 0;
+  const lanc = (p: Partial<ColheitaDia> = {}): ColheitaDia => ({
+    id: 'l' + ++n, campo_id: 'c1', data: '2027-01-08', colhido_kg: 60000, aprovado_kg: null, area_ha: null, observacoes: null, ...p,
+  });
+  it('soma os lançamentos do dia a dia e converte kg em sacos', () => {
+    const r = realCampo(campo(), [lanc({ data: '2027-01-09', colhido_kg: 120000 }), lanc(), lanc({ data: '2027-01-09', colhido_kg: 30000 })], P);
+    expect(r.colhidoSc).toBe(3500);
+    expect(r.internSc).toBe(3500);
+    expect(r.dias).toBe(2);
+    expect(r.lancamentos.map((l) => l.data)).toEqual(['2027-01-08', '2027-01-09', '2027-01-09']);
+    expect(paraKg(10, 'sc', 60)).toBe(600);
+    expect(paraKg(1.5, 't', 60)).toBe(1500);
+  });
+  it('aproveitamento para semente = aprovado e internalizado ÷ potencial (produtividade do produtor × área)', () => {
+    // 156 ha × 60 sc/ha = 9.360 sc de potencial; entraram 6.000 sc, dos quais 5.616 aprovados → 60%
+    const c = campo({ prod_real_sc_ha: 60, colheita_inicio: '2027-01-08', colheita_fim: '2027-01-10' });
+    const r = realCampo(c, [lanc({ colhido_kg: 360000, aprovado_kg: 336960 })], P);
+    expect(r.prodOrigem).toBe('produtor');
+    expect(r.potencialSc).toBe(9360);
+    expect(r.internSc).toBe(5616);
+    expect(r.aprovPct).toBeCloseTo(60, 9);
+    expect(r.naoAproveitadoSc).toBeCloseTo(3744, 9);
+    expect(r.aprovadoDoEntreguePct).toBeCloseTo(93.6, 9);
+    expect(r.areaRestante).toBe(0);
+  });
+  it('sem a produtividade do produtor usa a estimada e avisa a origem', () => {
+    const r = realCampo(campo(), [lanc()], P);
+    expect(r.prodOrigem).toBe('estimada');
+    expect(r.potencialSc).toBe(156 * 65);
+    expect(realCampo(campo(), [], P).aprovPct).toBeNull();
+  });
+  it('com a colheita em andamento mede o parcial sobre a área já colhida e desconta do que falta', () => {
+    const c = campo({ prod_real_sc_ha: 60, colheita_inicio: '2027-01-08' });
+    const r = realCampo(c, [lanc({ colhido_kg: 151200, area_ha: 56 })], P);
+    expect(r.parcial).toBe(true);
+    expect(r.potencialSc).toBe(56 * 60);
+    expect(r.aprovPct).toBeCloseTo(75, 9);
+    expect(r.areaRestante).toBe(100);
+    // o que falta: 100 ha × 60 sc/ha × 70%
+    expect(r.scRestante).toBeCloseTo(4200, 9);
+  });
+  it('sem área lançada estima o que falta colher pelo volume entregue', () => {
+    // esperado 156 ha × 65 × 70% = 7.098 sc; entraram 3.549 sc → metade do campo
+    const r = realCampo(campo({ colheita_inicio: '2027-01-08' }), [lanc({ colhido_kg: 3549 * 60 })], P);
+    expect(r.restanteEstimado).toBe(true);
+    expect(r.areaRestante).toBeCloseTo(78, 9);
+    expect(realCampo(campo(), [], P).areaRestante).toBe(156);
+    expect(realCampo(campo({ ativo: false }), [], P).areaRestante).toBe(0);
+  });
+});
+
+describe('metas por cultivar', () => {
+  const M = CONFIG_PADRAO.metas;
+  const meta = (p: Partial<MetaCultivar> = {}): MetaCultivar => ({
+    id: 'm1', cultivar: 'CULTIVAR T', meta_sc200: 2500, pms_g: null, rend_ubs: null, meta_intern_sc: null, bb_ubs: null, bb_tolling: null, observacoes: null, ...p,
+  });
+  const resumo = (campos: Campo[], colheitas: ColheitaDia[], metas: MetaCultivar[]) => {
+    const g = agruparColheitas(colheitas);
+    return resumirMetas(campos, new Map(campos.map((c) => [c.id, realCampo(c, g.get(c.id) ?? [], P)])), metas, P, M);
+  };
+  const vol = (campo_id: string, sc: number, area_ha: number | null = null): ColheitaDia => ({
+    id: 'v' + campo_id + sc, campo_id, data: '2027-01-08', colhido_kg: sc * 60, aprovado_kg: null, area_ha, observacoes: null,
+  });
+
+  it('big bags → sacos de 200 mil → semente pronta → matéria-prima a internalizar', () => {
+    // 100 big bags × 25 = 2.500 sc de 200 mil × 36 kg ÷ 60 = 1.500 sc prontos ÷ 75% = 2.000 sc brutos
+    expect(metaInternDe(2500, 180, 75, 60)).toBeCloseTo(2000, 9);
+    const [l] = resumo([campo()], [], [meta()]).linhas;
+    expect([l.metaBB, l.metaSc200, l.metaSc60]).toEqual([100, 2500, 1500]);
+    expect(l.metaIntern).toBeCloseTo(2000, 9);
+  });
+  it('PMS e rendimento por cultivar valem no lugar do padrão; meta manual vale no lugar do cálculo', () => {
+    expect(resumo([campo()], [], [meta({ pms_g: 150, rend_ubs: 80 })]).linhas[0].metaIntern).toBeCloseTo((2500 * 30) / 60 / 0.8, 9);
+    const [l] = resumo([campo()], [], [meta({ meta_intern_sc: 3000 })]).linhas;
+    expect(l.metaIntern).toBe(3000);
+    expect(l.metaManual).toBe(true);
+    // só a meta manual: os big bags equivalentes são deduzidos (3.000 × 75% ÷ 0,6 ÷ 25 = 150)
+    const [s] = resumo([campo()], [], [meta({ meta_sc200: null, meta_intern_sc: 3000 })]).linhas;
+    expect(s.bbDeduzido).toBe(true);
+    expect(s.metaBB).toBeCloseTo(150, 9);
+  });
+  it('GAP e atingimento usam o volume aprovado e internalizado dos campos da cultivar', () => {
+    const campos = [campo(), campo({ id: 'c2', chave: 'T02|S1', num_campo: 'T02', produto: ' cultivar t ' }), campo({ id: 'c3', chave: 'T03|S1', produto: 'OUTRA' })];
+    const r = resumo(campos, [vol('c1', 900), vol('c2', 600), vol('c3', 50)], [meta()]);
+    const l = r.linhas.find((x) => x.chave === chaveCultivar('CULTIVAR T'))!;
+    expect(l.campos).toBe(2);
+    expect(l.intern).toBe(1500);
+    expect(l.gap).toBe(-500);
+    expect(l.pct).toBe(75);
+    expect(r.intern).toBe(1550);
+    expect(r.gap).toBe(-450);
+    expect(r.linhas.find((x) => x.cultivar === 'OUTRA')!.situacao).toBe('sem_meta');
+  });
+  it('alerta quando falta internalizar mais do que o previsto nos campos ainda a colher', () => {
+    // 156 ha × 65 sc/ha × 70% = 7.098 sc previstos
+    const ok = resumo([campo()], [], [meta({ meta_intern_sc: 7000 })]);
+    expect(ok.linhas[0].situacao).toBe('no_caminho');
+    expect(ok.alertas).toHaveLength(0);
+    const al = resumo([campo()], [], [meta({ meta_intern_sc: 8000 })]);
+    expect(al.linhas[0].situacao).toBe('alerta');
+    expect(al.linhas[0].saldo).toBeCloseTo(7098 - 8000, 9);
+    expect(al.linhas[0].areaNecessaria).toBeCloseTo(8000 / 45.5, 9);
+    expect(al.alertas.map((l) => l.cultivar)).toEqual(['CULTIVAR T']);
+  });
+  it('campo já colhido não conta como disponível; meta atingida não gera alerta', () => {
+    const colhido = campo({ colheita_inicio: '2027-01-08', colheita_fim: '2027-01-10' });
+    const falta = resumo([colhido], [vol('c1', 5000)], [meta({ meta_intern_sc: 6000 })]).linhas[0];
+    expect([falta.areaDisp, falta.scDisp, falta.falta, falta.situacao]).toEqual([0, 0, 1000, 'alerta']);
+    const bateu = resumo([colhido], [vol('c1', 6500)], [meta({ meta_intern_sc: 6000 })]).linhas[0];
+    expect([bateu.situacao, bateu.gap, bateu.falta]).toEqual(['atingida', 500, 0]);
+  });
+  it('cultivar com meta e sem campo cadastrado entra na lista e alerta', () => {
+    const r = resumo([], [], [meta({ cultivar: 'SEM CAMPO' })]);
+    expect(r.linhas).toHaveLength(1);
+    expect(r.linhas[0].situacao).toBe('alerta');
+  });
+  it('projeta os big bags com o que já entrou e o que ainda vem', () => {
+    const [l] = resumo([campo({ colheita_inicio: '2027-01-08' })], [vol('c1', 2000, 56)], [meta({ bb_ubs: 40, bb_tolling: 10 })]).linhas;
+    expect(l.bbPossiveis).toBeCloseTo(100, 9);
+    // + 100 ha × 65 × 70% = 4.550 sc → (2.000 + 4.550) × 75% ÷ 0,6 ÷ 25
+    expect(l.bbProjetados).toBeCloseTo((6550 * 0.75) / 0.6 / 25, 9);
+    expect(l.bbProntos).toBe(50);
+    expect(l.pctProducao).toBe(50);
+  });
+});
+
+describe('armazenamento: volume colhido e metas', () => {
+  const vazio = (): Dados => ({ tecnicos: [], campos: [], dessecacoes: [], programacoes: [], colheitas: [], metas: [], config: structuredClone(CONFIG_PADRAO) });
+  it('lança, corrige e exclui volume; reimportar a planilha preserva a produtividade do produtor', async () => {
+    const s = new DemoStore(null, vazio());
+    const { id: _i, ...planilha } = campo();
+    const [c] = await s.importarCampos([planilha]);
+    expect(c.prod_real_sc_ha).toBeNull();
+    await s.atualizarCampos([c.id], { prod_real_sc_ha: 58 });
+    const [a] = await s.salvarColheitas([{ campo_id: c.id, data: '2027-01-08', colhido_kg: 1000, aprovado_kg: null, area_ha: null, observacoes: null }]);
+    await s.salvarColheitas([{ campo_id: c.id, data: '2027-01-08', colhido_kg: 500, aprovado_kg: 400, area_ha: 3, observacoes: 'carga 2' }]);
+    await s.salvarColheitas([{ id: a.id, campo_id: c.id, data: '2027-01-08', colhido_kg: 1200, aprovado_kg: null, area_ha: null, observacoes: null }]);
+    let d = await s.carregar();
+    expect(d.colheitas.map((x) => x.colhido_kg).sort()).toEqual([1200, 500]);
+    const [de] = await s.importarCampos([{ ...planilha, area_mapa: 200 }]);
+    expect(de.prod_real_sc_ha).toBe(58);
+    await s.excluirColheita(a.id);
+    await s.excluirCampo(c.id);
+    d = await s.carregar();
+    expect(d.colheitas).toHaveLength(0);
+  });
+  it('grava uma meta por cultivar (repetir atualiza) e aceita dados salvos por versão anterior', async () => {
+    const s = new DemoStore(null, vazio());
+    const base = { meta_sc200: 2500, pms_g: null, rend_ubs: null, meta_intern_sc: null, bb_ubs: null, bb_tolling: null, observacoes: null };
+    const m1 = await s.salvarMeta({ ...base, cultivar: 'CULTIVAR T' });
+    const m2 = await s.salvarMeta({ ...base, cultivar: 'cultivar  t', meta_sc200: 5000 });
+    expect(m2.id).toBe(m1.id);
+    expect((await s.carregar()).metas).toHaveLength(1);
+    await s.excluirMeta(m1.id);
+    expect((await s.carregar()).metas).toHaveLength(0);
+    const antigo = { tecnicos: [], campos: [{ ...campo(), prod_real_sc_ha: undefined }], dessecacoes: [], programacoes: [], config: { params: CONFIG_PADRAO.params } } as unknown as Dados;
+    const d = await new DemoStore({ getItem: () => JSON.stringify(antigo), setItem: () => {} }).carregar();
+    expect([d.colheitas, d.metas, d.campos[0].prod_real_sc_ha, d.config.metas]).toEqual([[], [], null, CONFIG_PADRAO.metas]);
+  });
+  it('os dados de exemplo trazem histórico de técnicos, volumes e uma cultivar em alerta', async () => {
+    const d = await new DemoStore(null).carregar();
+    const g = agruparColheitas(d.colheitas);
+    const reais = new Map(d.campos.map((c) => [c.id, realCampo(c, g.get(c.id) ?? [], d.config.params)]));
+    const r = resumirMetas(d.campos, reais, d.metas, d.config.params, d.config.metas);
+    expect(d.colheitas.length).toBeGreaterThan(10);
+    expect(r.intern).toBeGreaterThan(0);
+    expect(r.alertas.length).toBeGreaterThan(0);
+    expect(r.linhas.some((l) => l.situacao === 'no_caminho')).toBe(true);
+    const primeiro = d.programacoes.filter((p) => p.campo_id === d.campos[0].id);
+    expect(new Set(primeiro.map((p) => p.tecnico_id)).size).toBeGreaterThan(1);
+  });
+});
+
+describe('Supabase sem a migração 0002', () => {
+  // cliente de mentira: responde como o PostgREST quando a tabela ou a coluna ainda não existe
+  function falso(tabelas: Record<string, unknown[]>) {
+    const consulta = (t: string) => {
+      const resp = () =>
+        t in tabelas
+          ? { data: tabelas[t], error: null }
+          : { data: null, error: { message: `Could not find the table 'public.${t}' in the schema cache` } };
+      const q: Record<string, unknown> = {};
+      for (const m of ['select', 'order', 'eq', 'in']) q[m] = () => q;
+      q.range = async () => resp();
+      q.maybeSingle = async () => ({ data: { dados: {} }, error: null });
+      q.update = () => ({ in: () => ({ select: async () => ({ data: null, error: { message: "Could not find the 'prod_real_sc_ha' column of 'campos' in the schema cache" } }) }) });
+      return q;
+    };
+    return { rpc: async () => ({ data: true, error: null }), from: consulta } as never;
+  }
+  const { prod_real_sc_ha: _p, ...campoAntigo } = campo();
+
+  it('carrega o resto do sistema e avisa que falta atualizar o banco', async () => {
+    const d = await new SupabaseStore(falso({ tecnicos: [tec], campos: [campoAntigo], dessecacoes: [], programacoes: [prog()] })).carregar();
+    expect(d.faltaMigracao).toBe(true);
+    expect([d.campos.length, d.programacoes.length, d.colheitas.length, d.metas.length]).toEqual([1, 1, 0, 0]);
+    expect(d.campos[0].prod_real_sc_ha).toBeNull();
+    expect(d.config.metas).toEqual(CONFIG_PADRAO.metas);
+  });
+  it('com o banco atualizado não mostra o aviso', async () => {
+    const d = await new SupabaseStore(falso({ tecnicos: [], campos: [campo()], dessecacoes: [], programacoes: [], colheitas_diarias: [], metas_cultivar: [] })).carregar();
+    expect(d.faltaMigracao).toBe(false);
+  });
+  it('sem nenhuma tabela continua explicando o que rodar; gravar na coluna nova também', async () => {
+    await expect(new SupabaseStore(falso({})).carregar()).rejects.toThrow(SEM_TABELAS);
+    await expect(new SupabaseStore(falso({})).atualizarCampos(['c1'], { prod_real_sc_ha: 60 })).rejects.toThrow(/0002_colheita_real_e_metas\.sql/);
   });
 });

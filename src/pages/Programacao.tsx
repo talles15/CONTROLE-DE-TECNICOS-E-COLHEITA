@@ -20,14 +20,15 @@ export default function Programacao({ params }: { params: Record<string, string>
   const data = ehIso(params.data) ? params.data : amanha;
   const setData = (v: string) => v && ir('programacao', { data: v });
 
-  const [campoSel, setCampoSel] = useState<string | null>(params.campo ?? null);
+  // vários campos de uma vez: o mesmo técnico pode passar em mais de um campo no dia
+  const [camposSel, setCamposSel] = useState<string[]>(params.campo ? [params.campo] : []);
   const [tecSel, setTecSel] = useState('');
   const [ativ, setAtiv] = useState<Atividade>(params.atividade === 'coleta_pre' ? 'coleta_pre' : 'colheita_pre');
   const [obs, setObs] = useState('');
   const [texto, setTexto] = useState<{ titulo: string; corpo: string; tecnico: Tecnico | null } | null>(null);
 
   useEffect(() => {
-    if (params.campo) setCampoSel(params.campo);
+    if (params.campo) setCamposSel((l) => (l.includes(params.campo) ? l : [...l, params.campo]));
     if (params.atividade === 'coleta_pre' || params.atividade === 'colheita_pre') setAtiv(params.atividade);
   }, [params.campo, params.atividade]);
 
@@ -67,15 +68,20 @@ export default function Programacao({ params }: { params: Record<string, string>
     return [...out.values()].sort((a, b) => ordCampo(a.campo, b.campo));
   }, [d.dados, d.campoPorId, validos, data]);
 
-  async function adicionar(campoId: string | null, tecnicoId: string, atividade: Atividade, observacoes: string | null) {
-    if (!tecnicoId) return d.avisar('Escolha o técnico.', 'erro');
-    if (!campoId) return d.avisar('Escolha o campo.', 'erro');
-    const ok = await d.salvarProgramacoes([{ data, tecnico_id: tecnicoId, campo_id: campoId, atividade, observacoes, status: 'planejado' }], 'Campo programado.');
+  async function adicionar(campoIds: string[], tecnicoId: string, atividade: Atividade, observacoes: string | null): Promise<boolean> {
+    if (!tecnicoId) return d.avisar('Escolha o técnico.', 'erro'), false;
+    if (!campoIds.length) return d.avisar('Escolha pelo menos um campo.', 'erro'), false;
+    const nome = d.tecnicoPorId.get(tecnicoId)?.nome ?? 'o técnico';
+    const ok = await d.salvarProgramacoes(
+      campoIds.map((campo_id) => ({ data, tecnico_id: tecnicoId, campo_id, atividade, observacoes, status: 'planejado' as const })),
+      campoIds.length === 1 ? 'Campo programado.' : `${campoIds.length} campos programados para ${nome}.`,
+    );
     if (ok) {
-      setCampoSel(null);
+      setCamposSel((l) => l.filter((id) => !campoIds.includes(id)));
       setObs('');
       if (params.campo) ir('programacao', { data });
     }
+    return ok;
   }
 
   async function copiarAnterior() {
@@ -143,11 +149,26 @@ export default function Programacao({ params }: { params: Record<string, string>
       </section>
 
       <section className="card">
-        <h2>Adicionar campo à programação</h2>
+        <h2>Adicionar campos à programação</h2>
+        <div className="sub">O mesmo técnico pode passar em vários campos no dia (ex.: roteiro de pré-colheita): escolha todos e adicione de uma vez.</div>
         <div className="form larga" style={{ marginTop: 10 }}>
           <div className="campo" style={{ gridColumn: 'span 2' }}>
-            <label>Campo</label>
-            <SeletorCampo campos={ativos} valor={campoSel} onEscolher={setCampoSel} />
+            <label>Campos</label>
+            <SeletorCampo campos={ativos.filter((c) => !camposSel.includes(c.id))} valor={null} varios placeholder="Buscar e incluir campo, cliente, fazenda…"
+              onEscolher={(id) => id && setCamposSel((l) => (l.includes(id) ? l : [...l, id]))} />
+            <div className="escolhidos" data-testid="campos-escolhidos">
+              {camposSel.length === 0 && <span className="hint">Nenhum campo escolhido.</span>}
+              {camposSel.map((id) => {
+                const c = d.campoPorId.get(id);
+                if (!c) return null;
+                return (
+                  <span className="chip-campo" key={id} title={descCampo(c)}>
+                    <b>{c.num_campo}</b> {c.categoria_colher} · {n0(c.area_mapa)} ha
+                    <button type="button" aria-label={`Tirar ${c.num_campo} da lista`} onClick={() => setCamposSel((l) => l.filter((x) => x !== id))}>×</button>
+                  </span>
+                );
+              })}
+            </div>
           </div>
           <div className="campo">
             <label htmlFor="pgTec">Técnico</label>
@@ -167,12 +188,14 @@ export default function Programacao({ params }: { params: Record<string, string>
             <input id="pgObs" value={obs} onChange={(e) => setObs(e.target.value)} placeholder="opcional" />
           </div>
           <div className="btns">
-            <button className="btn primary" onClick={() => void adicionar(campoSel, tecSel, ativ, obs.trim() || null)}>Adicionar</button>
+            <button className="btn primary" onClick={() => void adicionar(camposSel, tecSel, ativ, obs.trim() || null)}>
+              {camposSel.length > 1 ? `Adicionar ${camposSel.length} campos` : 'Adicionar'}
+            </button>
           </div>
         </div>
       </section>
 
-      {sugestoes.length > 0 && <Sugestoes itens={sugestoes} tecnicos={d.dados.tecnicos.filter((t) => t.ativo)} onAdd={(s, tec, a) => void adicionar(s.campo.id, tec, a, null)} />}
+      {sugestoes.length > 0 && <Sugestoes itens={sugestoes} tecnicos={d.dados.tecnicos.filter((t) => t.ativo)} onAdd={(ids, tec, a) => adicionar(ids, tec, a, null)} />}
 
       <div className="quadro">
         {tecnicos.map((t) => {
@@ -264,21 +287,50 @@ function ItemCard({ it }: { it: ItemProg }) {
   );
 }
 
-function Sugestoes({ itens, tecnicos, onAdd }: { itens: Sugestao[]; tecnicos: Tecnico[]; onAdd: (s: Sugestao, tecnicoId: string, a: Atividade) => void }) {
+function Sugestoes({ itens, tecnicos, onAdd }: { itens: Sugestao[]; tecnicos: Tecnico[]; onAdd: (campoIds: string[], tecnicoId: string, a: Atividade) => Promise<boolean> }) {
   const [esc, setEsc] = useState<Record<string, { tec: string; ativ?: Atividade }>>({});
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [tecLote, setTecLote] = useState('');
+  const [ativLote, setAtivLote] = useState<Atividade>('coleta_pre');
+  const visiveis = itens.filter((s) => marcados.has(s.campo.id));
+  const marcar = (id: string, on: boolean) => {
+    const n = new Set(marcados);
+    if (on) n.add(id);
+    else n.delete(id);
+    setMarcados(n);
+  };
   return (
     <section className="card" data-testid="sugestoes">
       <h2>Sugestões para este dia ({itens.length})</h2>
-      <div className="sub" style={{ marginBottom: 10 }}>Campos com colheita provável, véspera de colheita ou já em colheita que ainda não têm técnico neste dia.</div>
+      <div className="sub" style={{ marginBottom: 10 }}>Campos com colheita provável, véspera de colheita ou já em colheita que ainda não têm técnico neste dia. Marque vários para mandar o mesmo técnico em todos.</div>
+      {visiveis.length > 0 && (
+        <div className="lote" data-testid="lote">
+          <b>{visiveis.length} campo(s) marcado(s)</b>
+          <select className="inp" aria-label="Técnico para os campos marcados" value={tecLote} onChange={(e) => setTecLote(e.target.value)}>
+            <option value="">Técnico…</option>
+            {tecnicos.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
+          </select>
+          <select className="inp" aria-label="Atividade para os campos marcados" value={ativLote} onChange={(e) => setAtivLote(e.target.value as Atividade)}>
+            {(Object.keys(ATIVIDADES) as Atividade[]).map((k) => <option key={k} value={k}>{ATIVIDADES[k].curto}</option>)}
+          </select>
+          <button className="btn primary" onClick={async () => { if (await onAdd(visiveis.map((s) => s.campo.id), tecLote, ativLote)) setMarcados(new Set()); }}>Adicionar marcados</button>
+          <button className="btn" onClick={() => setMarcados(new Set())}>Desmarcar</button>
+        </div>
+      )}
       <div className="tbl-wrap" style={{ maxHeight: 320 }}>
         <table>
-          <thead><tr><th>Campo</th><th>Local</th><th>Motivo</th><th>Técnico</th><th>Atividade</th><th /></tr></thead>
+          <thead><tr>
+            <th><input type="checkbox" aria-label="Marcar todos" checked={itens.length > 0 && visiveis.length === itens.length}
+              onChange={(e) => setMarcados(e.target.checked ? new Set(itens.map((s) => s.campo.id)) : new Set())} /></th>
+            <th>Campo</th><th>Local</th><th>Motivo</th><th>Técnico</th><th>Atividade</th><th />
+          </tr></thead>
           <tbody>
             {itens.map((s) => {
               const e = esc[s.campo.id] ?? { tec: '' };
               const a = e.ativ ?? s.atividade;
               return (
                 <tr key={s.campo.id}>
+                  <td><input type="checkbox" aria-label={`Marcar ${s.campo.num_campo}`} checked={marcados.has(s.campo.id)} onChange={(ev) => marcar(s.campo.id, ev.target.checked)} /></td>
                   <td className="nowrap"><b>{s.campo.num_campo}</b> <span className="muted">{n0(s.campo.area_mapa)} ha</span></td>
                   <td>{descCampo(s.campo)}</td>
                   <td>{s.motivo}</td>
@@ -293,7 +345,7 @@ function Sugestoes({ itens, tecnicos, onAdd }: { itens: Sugestao[]; tecnicos: Te
                       {(Object.keys(ATIVIDADES) as Atividade[]).map((k) => <option key={k} value={k}>{ATIVIDADES[k].curto}</option>)}
                     </select>
                   </td>
-                  <td className="n"><button className="btn mini primary" onClick={() => onAdd(s, e.tec, a)}>Adicionar</button></td>
+                  <td className="n"><button className="btn mini primary" onClick={() => void onAdd([s.campo.id], e.tec, a)}>Adicionar</button></td>
                 </tr>
               );
             })}

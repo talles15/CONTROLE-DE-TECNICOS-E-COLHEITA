@@ -1,8 +1,8 @@
 # Controle de Técnicos e Colheita — Safra 26/27
 
 Sistema web para acompanhar a colheita dos campos cooperantes: dessecação, colheita provável, aviso de pré-colheita,
-programação diária dos técnicos (com mensagem pronta para o WhatsApp), estimativa de internalização e mapa dos campos
-em relação à UBS.
+programação diária dos técnicos (com mensagem pronta para o WhatsApp), volume colhido real e aproveitamento para semente,
+estimativa de internalização, metas de produção por cultivar e mapa dos campos em relação à UBS.
 
 - **Tela:** hospedada na Vercel.
 - **Dados e login:** Supabase (banco PostgreSQL na nuvem).
@@ -13,9 +13,10 @@ em relação à UBS.
 | Aba | Para que serve |
 |---|---|
 | **Calendário** | Visão geral do mês: campos **dessecados**, com **colheita programada** e **em colheita**. No topo, os alertas: véspera de colheita (mandar alguém fazer a pré-colheita), colheita provável hoje, atrasados e próximos 7 dias. |
-| **Campos** | Lista com busca e filtros. Clicando no campo abre a ficha: registrar dessecação (data, área opcional e dias até a colheita), iniciar/finalizar colheita, ver técnicos programados, editar dados. |
-| **Programação** | Planejamento do dia (padrão: amanhã). Distribui campos entre os técnicos, informando se vai **colher e retirar pré-colheita** ou **passar pegando pré-colheita**. Gera o texto para o WhatsApp (copiar, baixar `.txt` ou abrir direto na conversa do técnico). |
-| **Internalização** | Estimativa de sacos por dia, acumulado e por semana, com painel de parâmetros (ha/dia, sc/ha, aproveitamento…), filtros e ajustes por campo. |
+| **Campos** | Lista com busca e filtros. Clicando no campo abre a ficha: registrar dessecação (data, área opcional e dias até a colheita), iniciar/finalizar colheita, **lançar o volume colhido dia a dia**, informar a **produtividade do produtor**, ver o **histórico de técnicos** escalados e editar dados. |
+| **Programação** | Planejamento do dia (padrão: amanhã). Distribui campos entre os técnicos, informando se vai **colher e retirar pré-colheita** ou **passar pegando pré-colheita**. Dá para escolher **vários campos de uma vez para o mesmo técnico** (roteiro de pré-colheita). Gera o texto para o WhatsApp (copiar, baixar `.txt` ou abrir direto na conversa do técnico). |
+| **Internalização** | Estimativa de sacos por dia, acumulado e por semana, com painel de parâmetros (ha/dia, sc/ha, aproveitamento…), filtros e ajustes por campo. Mostra também o internalizado real já lançado. |
+| **Metas** | Por cultivar: big bags de semente pronta planejados → meta de internalização de matéria-prima bruta, total internalizado, GAP e % de atingimento, com **alerta quando a demanda é maior que a área/volume ainda disponível para colher**. |
 | **Mapa** | Posição dos campos, anéis de 10, 20, 50, 100, 200 e 300 km a partir da UBS e a tabela de **volume por cultivar em cada faixa de distância**. |
 | **Técnicos** | Cadastro dos técnicos de campo (nome, telefone/WhatsApp, cidade base, função, cor, observações). |
 | **Importar campos** | Sobe a planilha de planting (`.xlsx`, aba **Base Planting**) de uma vez, com prévia antes de gravar. |
@@ -26,6 +27,46 @@ Na ficha do campo, informe a **data da dessecação** e os **dias até a colheit
 (ex.: dessecado em 11/11/2026 + 5 dias = **16/11/2026**). Um dia antes (15/11) o campo aparece no alerta
 **“Véspera — encaminhar pré-colheita”**, com o botão **Programar** para já escolher o técnico. A área dessecada é
 opcional e permite registrar dessecações parciais (mais de uma por campo).
+
+### Volume colhido e aproveitamento para semente
+
+Na ficha do campo, seção **Volume colhido e aproveitamento para semente**:
+
+- **Lançar volume do dia**: dia, volume colhido (em kg, sacos ou toneladas) e, se parte da carga foi para grão, o volume
+  **aprovado e internalizado** na UBS (em branco = tudo aprovado). A área colhida no dia é opcional. Pode haver mais de
+  um lançamento por dia, e cada um pode ser corrigido ou excluído.
+- **Produtividade do produtor (sc/ha)**: a produtividade geral da área que o produtor passar.
+- O sistema calcula o **potencial da área** (produtividade × área) e o **aproveitamento para semente**
+  (aprovado e internalizado ÷ potencial). Com a colheita em andamento e a área colhida lançada, a conta é feita só sobre
+  a área já colhida; com a colheita finalizada, sobre o campo inteiro. Sem a produtividade do produtor, o potencial usa
+  a produtividade estimada da aba Internalização e a tela avisa.
+
+### Histórico de técnicos no campo
+
+A ficha guarda todas as escalas do campo, sem limite de datas: quem foi, em que dia, se foi para **colher** ou para
+**pegar pré-colheita** e o andamento (planejado, concluído, cancelado), com um resumo por técnico e exportação em CSV.
+Para o registro não se perder, prefira **cancelar** uma escala antiga em vez de removê-la e **desativar** um técnico em
+vez de excluí-lo (excluir o técnico apaga as escalas dele).
+
+### Metas por cultivar
+
+As cultivares aparecem sozinhas, a partir da coluna *Produto* dos campos. Para cada uma, informe os **big bags
+planejados** (ou, em “Detalhes”, os sacos de 200 mil sementes, o PMS, o rendimento e os big bags já prontos):
+
+```
+sacos de 200 mil sementes = big bags × 25
+semente pronta (sc 60 kg)  = sacos de 200 mil × (PMS × 0,2 kg) ÷ 60
+meta de internalização     = semente pronta ÷ rendimento do beneficiamento (75%)
+GAP                        = total internalizado − meta
+```
+
+Os três parâmetros (25 sacos por big bag, PMS de 180 g e rendimento de 75%) são editáveis na própria aba, e PMS e
+rendimento podem ser ajustados por cultivar. Também dá para digitar a meta de internalização direto, à mão.
+O **total internalizado** vem dos volumes aprovados lançados nas fichas dos campos.
+
+O **alerta** aparece quando o que falta internalizar é maior que o volume previsto nos campos ainda por colher daquela
+cultivar (área restante × sc/ha × aproveitamento). A aba mostra o déficit em sacos, a área que seria necessária e
+quantos big bags a projeção alcança.
 
 ## Como colocar no ar
 
@@ -40,12 +81,19 @@ Os nomes dos menus podem mudar um pouco conforme a versão dos painéis.
 3. **Crie as tabelas:** *SQL Editor → New query*, cole todo o conteúdo de
    [`supabase/migrations/0001_schema.sql`](supabase/migrations/0001_schema.sql) e clique em **Run**.
    Na primeira execução, os usuários que você acabou de criar já ficam liberados para usar o sistema.
+   Depois faça o mesmo com
+   [`supabase/migrations/0002_colheita_real_e_metas.sql`](supabase/migrations/0002_colheita_real_e_metas.sql)
+   (volume colhido, produtividade do produtor e metas por cultivar).
 4. **Desligue o cadastro público:** *Authentication → Sign In / Providers* → desligue **Allow new users to sign up** e salve.
    (Em algumas versões do painel a opção fica dentro do provedor **Email**.)
 5. Copie as duas informações de conexão no botão **Connect** (topo da tela) ou em *Settings → API Keys*:
    - **Project URL** (ex.: `https://abcdefgh.supabase.co`);
    - **Publishable key** (começa com `sb_publishable_…`). Em projetos antigos ela se chama **anon / public** e fica na
      aba *Legacy API Keys*. **Nunca** use a chave *secret* / `service_role` aqui.
+
+**Já usa o sistema e está atualizando?** Rode só o arquivo `0002_colheita_real_e_metas.sql` no SQL Editor. Ele não
+apaga nada e pode ser executado mais de uma vez. Enquanto isso não for feito, o sistema continua funcionando e mostra
+um aviso no topo dizendo que falta atualizar o banco.
 
 **Para liberar outra pessoa depois:** crie o usuário (passo 2) e inclua o e-mail dela em
 *Table Editor → usuarios_liberados → Insert row*. Sem isso ela consegue fazer login, mas o sistema avisa que o e-mail
@@ -100,7 +148,7 @@ Depois é só abrir o endereço que aparecer no terminal (normalmente `http://lo
 - Plantio e colheita prevista usam a data mais cedo entre as linhas; a posição no mapa usa a primeira linha com coordenada.
 - Coordenadas no formato da planilha (`173000.5` = 17°30'00.5"S) são convertidas automaticamente.
 - **Reimportar é seguro:** os dados da planilha são atualizados e tudo o que foi lançado no sistema (dessecações,
-  datas de colheita, programações, ajustes da projeção) é mantido. Campos que saíram da planilha são apenas sinalizados,
+  datas de colheita, programações, volumes colhidos, produtividade do produtor, ajustes da projeção) é mantido. Campos que saíram da planilha são apenas sinalizados,
   com opção de inativar.
 
 ## Segurança e privacidade
@@ -112,10 +160,10 @@ Depois é só abrir o endereço que aparecer no terminal (normalmente `http://lo
 ## Para quem for mexer no código
 
 ```
-src/lib/        regras de negócio (importação, alertas, projeção, distâncias, texto do WhatsApp, acesso a dados)
+src/lib/        regras de negócio (importação, alertas, projeção, colheita real, metas, distâncias, texto do WhatsApp, acesso a dados)
 src/pages/      uma tela por aba
 src/components/ ficha do campo e componentes compartilhados
-supabase/       esquema do banco
+supabase/       esquema do banco (rodar os arquivos de migrations/ em ordem)
 e2e/            teste de ponta a ponta (Playwright, modo demonstração)
 ```
 

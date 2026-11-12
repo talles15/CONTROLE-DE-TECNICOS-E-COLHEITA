@@ -1,12 +1,14 @@
 // Camada de dados. Duas implementações com a mesma interface:
-//  - Supabase (produção): tabelas do arquivo supabase/migrations/0001_schema.sql;
+//  - Supabase (produção): tabelas dos arquivos em supabase/migrations/;
 //  - demonstração: dados fictícios guardados no navegador (localStorage).
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { dataProvavel } from './dates';
 import { dadosDemo } from './demoData';
+import { chaveCultivar } from './metas';
 import {
   CONFIG_PADRAO, CONTROLE_PADRAO,
-  type Campo, type CampoPlanilha, type Config, type Dados, type Dessecacao, type Programacao, type Tecnico,
+  type Campo, type CampoPlanilha, type ColheitaDia, type Config, type Dados, type Dessecacao, type MetaCultivar, type Programacao,
+  type Tecnico,
 } from './types';
 
 export type NovoTecnico = Omit<Tecnico, 'id' | 'created_at'> & { id?: string };
@@ -14,6 +16,8 @@ export type NovaDessecacao = Pick<Dessecacao, 'campo_id' | 'data' | 'area_ha' | 
 export type NovaProgramacao = Pick<Programacao, 'data' | 'tecnico_id' | 'campo_id' | 'atividade' | 'observacoes'> & {
   status?: Programacao['status'];
 };
+export type NovaColheita = Pick<ColheitaDia, 'campo_id' | 'data' | 'colhido_kg' | 'aprovado_kg' | 'area_ha' | 'observacoes'> & { id?: string };
+export type NovaMeta = Omit<MetaCultivar, 'id' | 'created_at'>;
 
 export interface Store {
   modo: 'supabase' | 'demo';
@@ -30,6 +34,12 @@ export interface Store {
   salvarProgramacoes(ps: NovaProgramacao[]): Promise<Programacao[]>;
   atualizarProgramacao(id: string, patch: Partial<Programacao>): Promise<Programacao>;
   excluirProgramacao(id: string): Promise<void>;
+  /** lançamentos de volume colhido: sem id cria, com id corrige */
+  salvarColheitas(cs: NovaColheita[]): Promise<ColheitaDia[]>;
+  excluirColheita(id: string): Promise<void>;
+  /** grava a meta pelo nome da cultivar: repetir a mesma cultivar atualiza */
+  salvarMeta(m: NovaMeta): Promise<MetaCultivar>;
+  excluirMeta(id: string): Promise<void>;
   salvarConfig(c: Config): Promise<void>;
 }
 
@@ -43,6 +53,7 @@ export function mesclarConfig(bruto: unknown): Config {
     ubs: { ...CONFIG_PADRAO.ubs, ...(b.ubs ?? {}) },
     faixas: faixas.length ? faixas : CONFIG_PADRAO.faixas,
     avisoDias: Number.isFinite(b.avisoDias) && (b.avisoDias as number) >= 1 ? Math.round(b.avisoDias as number) : CONFIG_PADRAO.avisoDias,
+    metas: { ...CONFIG_PADRAO.metas, ...(b.metas ?? {}) },
   };
 }
 
@@ -91,15 +102,33 @@ export class SupabaseStore implements Store {
         'Seu e-mail ainda não está liberado para usar o sistema. Peça ao administrador para incluí-lo na tabela "usuarios_liberados" do Supabase.',
       );
     }
-    const [tecnicos, campos, dessecacoes, programacoes, cfg] = await Promise.all([
+    // as tabelas da migração 0002 podem ainda não existir: o resto do sistema continua funcionando
+    let faltaMigracao = false;
+    const opcional = async <T,>(tabela: string, ordem: string): Promise<T[]> => {
+      try {
+        return await this.todos<T>(tabela, ordem);
+      } catch (e) {
+        if (!(e instanceof Error) || e.message !== SEM_TABELAS) throw e;
+        faltaMigracao = true;
+        return [];
+      }
+    };
+    const [tecnicos, campos, dessecacoes, programacoes, colheitas, metas, cfg] = await Promise.all([
       this.todos<Tecnico>('tecnicos', 'nome'),
       this.todos<Campo>('campos', 'num_campo'),
       this.todos<Dessecacao>('dessecacoes', 'data'),
       this.todos<Programacao>('programacoes', 'data'),
+      opcional<ColheitaDia>('colheitas_diarias', 'data'),
+      opcional<MetaCultivar>('metas_cultivar', 'cultivar'),
       this.sb.from('configuracoes').select('dados').eq('id', 1).maybeSingle(),
     ]);
     if (cfg.error) throw new Error(erroPt(cfg.error.message));
-    return { tecnicos, campos, dessecacoes, programacoes, config: mesclarConfig(cfg.data?.dados) };
+    if (campos.length && !('prod_real_sc_ha' in campos[0])) faltaMigracao = true;
+    return {
+      tecnicos, dessecacoes, programacoes, colheitas, metas, faltaMigracao,
+      campos: campos.map((c) => ({ ...c, prod_real_sc_ha: c.prod_real_sc_ha ?? null })),
+      config: mesclarConfig(cfg.data?.dados),
+    };
   }
 
   async salvarTecnico(t: NovoTecnico): Promise<Tecnico> {
@@ -177,16 +206,47 @@ export class SupabaseStore implements Store {
     if (error) throw new Error(erroPt(error.message));
   }
 
+  async salvarColheitas(cs: NovaColheita[]): Promise<ColheitaDia[]> {
+    const novos = cs.filter((c) => !c.id).map(({ id: _i, ...r }) => r);
+    const out: ColheitaDia[] = [];
+    if (novos.length) {
+      const { data, error } = await this.sb.from('colheitas_diarias').insert(novos).select();
+      if (error) throw new Error(erroPt(error.message));
+      out.push(...((data ?? []) as ColheitaDia[]));
+    }
+    for (const { id, ...r } of cs.filter((c) => c.id)) {
+      const { data, error } = await this.sb.from('colheitas_diarias').update(r).eq('id', id!).select().single();
+      if (error) throw new Error(erroPt(error.message));
+      out.push(data as ColheitaDia);
+    }
+    return out;
+  }
+  async excluirColheita(id: string): Promise<void> {
+    const { error } = await this.sb.from('colheitas_diarias').delete().eq('id', id);
+    if (error) throw new Error(erroPt(error.message));
+  }
+
+  async salvarMeta(m: NovaMeta): Promise<MetaCultivar> {
+    const { data, error } = await this.sb.from('metas_cultivar').upsert(m, { onConflict: 'cultivar' }).select().single();
+    if (error) throw new Error(erroPt(error.message));
+    return data as MetaCultivar;
+  }
+  async excluirMeta(id: string): Promise<void> {
+    const { error } = await this.sb.from('metas_cultivar').delete().eq('id', id);
+    if (error) throw new Error(erroPt(error.message));
+  }
+
   async salvarConfig(c: Config): Promise<void> {
     const { error } = await this.sb.from('configuracoes').upsert({ id: 1, dados: c });
     if (error) throw new Error(erroPt(error.message));
   }
 }
 
+export const SEM_TABELAS =
+  'O banco do Supabase está sem as tabelas mais recentes. No SQL Editor, rode os arquivos da pasta supabase/migrations (0001_schema.sql e 0002_colheita_real_e_metas.sql).';
+
 function erroPt(msg: string): string {
-  if (/relation .* does not exist|schema cache|could not find the function/i.test(msg)) {
-    return 'As tabelas ainda não existem no Supabase. Rode o arquivo supabase/migrations/0001_schema.sql no SQL Editor.';
-  }
+  if (/relation .* does not exist|schema cache|could not find the function|column .* does not exist/i.test(msg)) return SEM_TABELAS;
   if (/row-level security|permission denied/i.test(msg)) return 'Sem permissão para gravar. Faça login novamente.';
   if (/duplicate key/i.test(msg)) return 'Já existe um registro igual (mesmo técnico, campo e dia).';
   if (/failed to fetch|network/i.test(msg)) return 'Sem conexão com o Supabase. Confira a internet e tente de novo.';
@@ -212,8 +272,7 @@ export class DemoStore implements Store {
     } catch {
       salvo = null;
     }
-    this.d = salvo ?? semente ?? dadosDemo();
-    this.d.config = mesclarConfig(this.d.config);
+    this.d = completar(salvo ?? semente ?? dadosDemo());
     if (!salvo) this.gravar();
   }
   private gravar(): void {
@@ -225,7 +284,7 @@ export class DemoStore implements Store {
   }
   /** troca todos os dados (usado por "restaurar demonstração" e "começar vazio") */
   substituir(d: Dados): void {
-    this.d = { ...d, config: mesclarConfig(d.config) };
+    this.d = completar(d);
     this.gravar();
   }
   private copia<T>(v: T): T {
@@ -283,6 +342,7 @@ export class DemoStore implements Store {
     this.d.campos = this.d.campos.filter((c) => c.id !== id);
     this.d.dessecacoes = this.d.dessecacoes.filter((x) => x.campo_id !== id);
     this.d.programacoes = this.d.programacoes.filter((x) => x.campo_id !== id);
+    this.d.colheitas = this.d.colheitas.filter((x) => x.campo_id !== id);
     this.gravar();
   }
   async salvarDessecacoes(ds: NovaDessecacao[]): Promise<Dessecacao[]> {
@@ -338,8 +398,54 @@ export class DemoStore implements Store {
     this.d.programacoes = this.d.programacoes.filter((x) => x.id !== id);
     this.gravar();
   }
+  async salvarColheitas(cs: NovaColheita[]): Promise<ColheitaDia[]> {
+    const out: ColheitaDia[] = [];
+    for (const c of cs) {
+      if (c.id) {
+        const i = this.d.colheitas.findIndex((x) => x.id === c.id);
+        if (i < 0) throw new Error('Lançamento não encontrado.');
+        out.push((this.d.colheitas[i] = { ...this.d.colheitas[i], ...c, id: c.id }));
+      } else {
+        const novo: ColheitaDia = { ...c, id: uid(), created_at: new Date().toISOString() };
+        this.d.colheitas.push(novo);
+        out.push(novo);
+      }
+    }
+    this.gravar();
+    return this.copia(out);
+  }
+  async excluirColheita(id: string): Promise<void> {
+    this.d.colheitas = this.d.colheitas.filter((x) => x.id !== id);
+    this.gravar();
+  }
+  async salvarMeta(m: NovaMeta): Promise<MetaCultivar> {
+    const i = this.d.metas.findIndex((x) => chaveCultivar(x.cultivar) === chaveCultivar(m.cultivar));
+    let reg: MetaCultivar;
+    if (i >= 0) reg = this.d.metas[i] = { ...this.d.metas[i], ...m };
+    else {
+      reg = { ...m, id: uid(), created_at: new Date().toISOString() };
+      this.d.metas.push(reg);
+    }
+    this.gravar();
+    return this.copia(reg);
+  }
+  async excluirMeta(id: string): Promise<void> {
+    this.d.metas = this.d.metas.filter((x) => x.id !== id);
+    this.gravar();
+  }
   async salvarConfig(c: Config): Promise<void> {
     this.d.config = mesclarConfig(c);
     this.gravar();
   }
+}
+
+/** Dados salvos por uma versão anterior não têm as listas e colunas novas. */
+function completar(d: Dados): Dados {
+  return {
+    ...d,
+    campos: (d.campos ?? []).map((c) => ({ ...c, prod_real_sc_ha: c.prod_real_sc_ha ?? null })),
+    colheitas: d.colheitas ?? [],
+    metas: d.metas ?? [],
+    config: mesclarConfig(d.config),
+  };
 }
