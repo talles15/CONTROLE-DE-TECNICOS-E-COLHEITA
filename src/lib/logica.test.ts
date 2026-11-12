@@ -266,19 +266,26 @@ describe('colheita real do campo', () => {
     // 156 ha × 60 sc/ha = 9.360 sc de potencial; entraram 6.000 sc, dos quais 5.616 aprovados → 60%
     const c = campo({ prod_real_sc_ha: 60, colheita_inicio: '2027-01-08', colheita_fim: '2027-01-10' });
     const r = realCampo(c, [lanc({ colhido_kg: 360000, aprovado_kg: 336960 })], P);
-    expect(r.prodOrigem).toBe('produtor');
     expect(r.potencialSc).toBe(9360);
     expect(r.internSc).toBe(5616);
     expect(r.aprovPct).toBeCloseTo(60, 9);
-    expect(r.naoAproveitadoSc).toBeCloseTo(3744, 9);
+    // deixou de ir para a UBS = potencial − entregue = 9.360 − 6.000
+    expect(r.naoEnviadoSc).toBeCloseTo(3360, 9);
     expect(r.aprovadoDoEntreguePct).toBeCloseTo(93.6, 9);
     expect(r.areaRestante).toBe(0);
   });
-  it('sem a produtividade do produtor usa a estimada e avisa a origem', () => {
+  it('sem a produtividade do produtor não há potencial nem aproveitamento (nada é estimado no lugar)', () => {
     const r = realCampo(campo(), [lanc()], P);
-    expect(r.prodOrigem).toBe('estimada');
-    expect(r.potencialSc).toBe(156 * 65);
-    expect(realCampo(campo(), [], P).aprovPct).toBeNull();
+    expect([r.prodHa, r.potencialSc, r.naoEnviadoSc, r.aprovPct]).toEqual([null, null, null, null]);
+    expect(r.internSc).toBe(1000);
+  });
+  it('a produtividade do produtor é só informativa: não muda o volume nem o que falta colher', () => {
+    const base = campo({ colheita_inicio: '2027-01-08' });
+    for (const l of [[], [lanc({ colhido_kg: 151200, area_ha: 56 })], [lanc({ colhido_kg: 151200 })]]) {
+      const sem = realCampo(base, l, P);
+      const com = realCampo({ ...base, prod_real_sc_ha: 90 }, l, P);
+      expect([com.colhidoSc, com.internSc, com.areaRestante, com.scRestante]).toEqual([sem.colhidoSc, sem.internSc, sem.areaRestante, sem.scRestante]);
+    }
   });
   it('com a colheita em andamento mede o parcial sobre a área já colhida e desconta do que falta', () => {
     const c = campo({ prod_real_sc_ha: 60, colheita_inicio: '2027-01-08' });
@@ -287,8 +294,8 @@ describe('colheita real do campo', () => {
     expect(r.potencialSc).toBe(56 * 60);
     expect(r.aprovPct).toBeCloseTo(75, 9);
     expect(r.areaRestante).toBe(100);
-    // o que falta: 100 ha × 60 sc/ha × 70%
-    expect(r.scRestante).toBeCloseTo(4200, 9);
+    // o que falta usa os parâmetros da Internalização (65 sc/ha × 70%), não a produtividade do produtor
+    expect(r.scRestante).toBeCloseTo(4550, 9);
   });
   it('sem área lançada estima o que falta colher pelo volume entregue', () => {
     // esperado 156 ha × 65 × 70% = 7.098 sc; entraram 3.549 sc → metade do campo
@@ -364,6 +371,12 @@ describe('metas por cultivar', () => {
     const r = resumo([], [], [meta({ cultivar: 'SEM CAMPO' })]);
     expect(r.linhas).toHaveLength(1);
     expect(r.linhas[0].situacao).toBe('alerta');
+  });
+  it('a produtividade do produtor não mexe nas metas: só o volume internalizado conta', () => {
+    const c = campo({ colheita_inicio: '2027-01-08' });
+    const sem = resumo([c], [vol('c1', 2000, 56)], [meta()]).linhas[0];
+    const com = resumo([{ ...c, prod_real_sc_ha: 20 }], [vol('c1', 2000, 56)], [meta()]).linhas[0];
+    expect([com.intern, com.gap, com.scDisp, com.areaDisp, com.situacao, com.bbProjetados]).toEqual([sem.intern, sem.gap, sem.scDisp, sem.areaDisp, sem.situacao, sem.bbProjetados]);
   });
   it('projeta os big bags com o que já entrou e o que ainda vem', () => {
     const [l] = resumo([campo({ colheita_inicio: '2027-01-08' })], [vol('c1', 2000, 56)], [meta({ bb_ubs: 40, bb_tolling: 10 })]).linhas;

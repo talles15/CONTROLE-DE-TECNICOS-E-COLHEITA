@@ -217,7 +217,7 @@ export default function Metas() {
         <ul>
           <li><b>Meta de internalização</b> = big bags × sacos de 200 mil por big bag × peso do saco de 200 mil (PMS × 0,2 kg) ÷ {n0(P.kg)} kg ÷ rendimento do beneficiamento. Uma meta digitada à mão em “Detalhes” vale no lugar do cálculo.</li>
           <li><b>Total internalizado</b> = soma do volume <i>aprovado e internalizado</i> lançado na ficha de cada campo da cultivar. <b>GAP</b> = internalizado − meta. <b>% atingimento</b> = internalizado ÷ meta.</li>
-          <li><b>Ainda a colher</b> = área dos campos ativos ainda não finalizados, descontada a área colhida já lançada (sem área lançada, o sistema estima pelo volume entregue). Em sacos, é essa área × sc/ha × aproveitamento, usando a produtividade do produtor quando informada e, senão, os valores da aba Internalização ({n0(P.scHa)} sc/ha e {n0(P.aprov)}%).</li>
+          <li><b>Ainda a colher</b> = área dos campos ativos ainda não finalizados, descontada a área colhida já lançada (sem área lançada, o sistema estima pelo volume entregue). Em sacos, é essa área × sc/ha × aproveitamento, com os valores da aba Internalização ({n0(P.scHa)} sc/ha e {n0(P.aprov)}%, ou o ajuste feito por campo lá). A produtividade informada pelo produtor é só informativa e não entra nesta conta.</li>
           <li><b>Alerta</b>: aparece quando o que falta para a meta é maior que o volume ainda a colher. <b>Saldo</b> = ainda a colher − falta. <b>Cobertura</b> = (internalizado + ainda a colher) ÷ meta.</li>
           <li><b>Big bags projetados</b> = (internalizado + ainda a colher) × rendimento ÷ peso de um big bag.</li>
         </ul>

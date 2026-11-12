@@ -8,7 +8,7 @@ import { abrirFicha, ir } from '../lib/rota';
 import { ORDEM_SITUACAO, SITUACOES, type Situacao } from '../lib/status';
 import type { Campo } from '../lib/types';
 
-type Col = 'campo' | 'cliente' | 'cidade' | 'produto' | 'area' | 'prev' | 'dess' | 'prov' | 'sit' | 'intern' | 'aprov';
+type Col = 'campo' | 'cliente' | 'cidade' | 'produto' | 'area' | 'prev' | 'dess' | 'prov' | 'sit' | 'intern';
 
 export default function Campos() {
   const d = useDados();
@@ -45,7 +45,6 @@ export default function Campos() {
         case 'prov': return r.provavel ?? '9';
         case 'sit': return ORDEM_SITUACAO.indexOf(r.situacao);
         case 'intern': return d.reais.get(c.id)?.internSc ?? 0;
-        case 'aprov': return d.reais.get(c.id)?.aprovPct ?? -1;
         default: return '';
       }
     };
@@ -75,15 +74,14 @@ export default function Campos() {
     const linhas: (string | number | null)[][] = [[
       'Campo', 'Categoria a colher', 'Cliente', 'Fazenda', 'Cidade', 'UF', 'Cultivar', 'Área MAPA (ha)', 'Colheita prevista (planilha)',
       'Última dessecação', 'Área dessecada (ha)', 'Colheita provável', 'Início colheita', 'Fim colheita', 'Situação',
-      'Colhido (sc)', 'Internalizado (sc)', 'Produtividade do produtor (sc/ha)', 'Potencial (sc)', 'Aproveitamento para semente (%)', 'Área ainda a colher (ha)',
+      'Colhido (sc)', 'Aprovado e internalizado (sc)', 'Área ainda a colher (ha)',
     ]];
     for (const c of lista) {
       const r = d.resumos.get(c.id)!;
       const x = d.reais.get(c.id)!;
       linhas.push([c.num_campo, c.categoria_colher, c.cliente, c.propriedade, c.cidade, c.uf, c.produto, c.area_mapa, br(c.data_colheita_prevista),
         br(r.ultimaDessecacao), r.areaDessecada || null, br(r.provavel), br(c.colheita_inicio), br(c.colheita_fim), SITUACOES[r.situacao].rotulo,
-        x.lancamentos.length ? Math.round(x.colhidoSc) : null, x.lancamentos.length ? Math.round(x.internSc) : null, c.prod_real_sc_ha,
-        x.lancamentos.length ? Math.round(x.potencialSc) : null, x.aprovPct != null ? +x.aprovPct.toFixed(1) : null, +x.areaRestante.toFixed(1)]);
+        x.lancamentos.length ? Math.round(x.colhidoSc) : null, x.lancamentos.length ? Math.round(x.internSc) : null, +x.areaRestante.toFixed(1)]);
     }
     baixar(`campos_${d.hoje}.csv`, csv(linhas), 'text/csv;charset=utf-8');
   }
@@ -119,7 +117,7 @@ export default function Campos() {
             <tr>
               {th('campo', 'Campo')}{th('cliente', 'Cliente · Fazenda')}{th('cidade', 'Cidade')}{th('produto', 'Cultivar')}
               {th('area', 'Área (ha)', true)}{th('prev', 'Prev. planilha')}{th('dess', 'Dessecação')}{th('prov', 'Colheita provável')}{th('sit', 'Situação')}
-              {th('intern', 'Internalizado (sc)', true)}{th('aprov', 'Aprov. semente', true)}
+              {th('intern', 'Internalizado (sc)', true)}
               <th>Técnico</th>
             </tr>
           </thead>
@@ -140,12 +138,11 @@ export default function Campos() {
                   <td className="nowrap">{r.provavel ? <b>{br(r.provavel)}</b> : <span className="muted">—</span>}</td>
                   <td><Sit s={r.situacao} /></td>
                   <td className="n">{x.lancamentos.length ? n0(x.internSc) : <span className="muted">—</span>}</td>
-                  <td className="n">{x.aprovPct != null ? <>{n0(x.aprovPct)}%{x.prodOrigem === 'estimada' && <span className="muted" title="Sem a produtividade do produtor: potencial estimado"> *</span>}</> : <span className="muted">—</span>}</td>
                   <td>{tecs.map((t, i) => { const x = d.tecnicoPorId.get(t.id); return x ? <TecChip key={i} t={x} extra={t.quando} /> : null; })}</td>
                 </tr>
               );
             })}
-            {lista.length === 0 && <tr><td colSpan={12} className="empty">Nenhum campo encontrado.</td></tr>}
+            {lista.length === 0 && <tr><td colSpan={11} className="empty">Nenhum campo encontrado.</td></tr>}
           </tbody>
         </table>
       </div>

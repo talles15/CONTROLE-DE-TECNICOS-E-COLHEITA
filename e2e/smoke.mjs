@@ -260,10 +260,14 @@ try {
   await ficha.getByLabel('Área colhida no dia (ha)').fill('50');
   await ficha.getByRole('button', { name: 'Lançar volume' }).click();
   await ficha.getByRole('row', { name: /16\/11\/2026/ }).waitFor();
-  const resumoReal = await ficha.locator('.reais').innerText();
+  const resumoReal = await ficha.locator('.reais').first().innerText();
   // colhido 300.000 kg = 5.000 sc; aprovado 270.000 kg = 4.500 sc; potencial 150 ha × 60 sc/ha = 9.000 sc → 50%
   ok(/5\.000 sc/.test(resumoReal) && /4\.500 sc/.test(resumoReal) && /90,0% do entregue/.test(resumoReal), 'soma os lançamentos do dia a dia: 5.000 sc colhidos, 4.500 sc aprovados e internalizados');
-  ok(/9\.000 sc/.test(resumoReal) && /produtividade do produtor/.test(resumoReal), 'potencial = produtividade do produtor × área colhida (60 sc/ha × 150 ha = 9.000 sc)');
+  // a produtividade do produtor é só informativa: não muda o "ainda a colher" (150 ha × 65 sc/ha × 70% do painel)
+  ok(/150,0 ha/.test(resumoReal) && /6\.825 sc a internalizar/.test(resumoReal), 'o que falta colher usa os parâmetros da Internalização, não a produtividade do produtor');
+  const info = await p.getByTestId('prod-produtor').innerText();
+  ok(/só informativo/i.test(info) && /9\.000 sc/.test(info) && /60,0 sc\/ha × 150,0 ha/.test(info), 'potencial = produtividade do produtor × área colhida (60 sc/ha × 150 ha = 9.000 sc), em um bloco só informativo');
+  ok(/4\.000 sc/.test(await p.getByTestId('nao-enviado').innerText()), 'mostra quanto deixou de ir para a UBS: 9.000 − 5.000 entregues = 4.000 sc');
   ok(/50,0%/.test(await p.getByTestId('aprov-semente').innerText()), 'aproveitamento para semente = 4.500 ÷ 9.000 = 50,0%');
   await ficha.getByRole('row', { name: /16\/11\/2026/ }).getByRole('button', { name: 'Corrigir' }).click();
   await ficha.getByLabel('Aprovado e internalizado (kg)').fill('');
@@ -276,6 +280,8 @@ try {
   await p.getByText('Lançamento corrigido.').last().waitFor();
   await foto('8-ficha-volume');
   await p.getByRole('button', { name: 'Fechar' }).click();
+  const linhaCampo = await p.locator('tbody tr').first().innerText();
+  ok(/4\.500/.test(linhaCampo) && !/%/.test(linhaCampo), 'a lista de campos leva só o volume internalizado; produtividade e aproveitamento ficam na ficha');
 
   console.log('Metas por cultivar');
   await ir('metas');
@@ -284,20 +290,21 @@ try {
   ok(await linhaMeta.isVisible(), 'as cultivares dos campos aparecem sozinhas na aba Metas');
   const bb = p.getByLabel(`Big bags planejados ${cultivar}`);
   if (!real) {
-    // CULT 74: 4.500 sc internalizados; a colher 150 ha × 60 × 70% + 500 ha × 65 × 70% = 29.050 sc
+    // CULT 74: 4.500 sc internalizados; a colher (150 ha + 500 ha) × 65 sc/ha × 70% = 29.575 sc
+    // (a produtividade de 60 sc/ha informada pelo produtor não entra nesta conta)
     await bb.fill('1000');
     await bb.press('Enter');
     await p.getByText(`Meta de ${cultivar} salva.`).waitFor();
     let linha = await linhaMeta.innerText();
-    ok(/20\.000/.test(linha) && /15\.500/.test(linha) && /29\.050/.test(linha) && /Dá para fechar/.test(linha), '1.000 big bags → meta de 20.000 sc; faltam 15.500 e há 29.050 sc a colher: dá para fechar');
+    ok(/20\.000/.test(linha) && /15\.500/.test(linha) && /29\.575/.test(linha) && /Dá para fechar/.test(linha), '1.000 big bags → meta de 20.000 sc; faltam 15.500 e há 29.575 sc a colher: dá para fechar');
     ok((await p.getByTestId('alerta-metas').count()) === 0, 'sem alerta enquanto o que falta cabe no que há para colher');
     await bb.fill('2000');
     await bb.press('Enter');
     await p.getByTestId('alerta-metas').waitFor();
     const alerta = await p.getByTestId('alerta-metas').innerText();
-    ok(alerta.includes(cultivar) && /faltam 35\.500 sc/.test(alerta) && /29\.050 sc/.test(alerta) && /Déficit de 6\.450 sc/.test(alerta), '2.000 big bags → faltam 35.500 sc e só há 29.050 a colher: alerta com déficit de 6.450 sc');
+    ok(alerta.includes(cultivar) && /faltam 35\.500 sc/.test(alerta) && /29\.575 sc/.test(alerta) && /Déficit de 5\.925 sc/.test(alerta), '2.000 big bags → faltam 35.500 sc e só há 29.575 a colher: alerta com déficit de 5.925 sc');
     linha = await linhaMeta.innerText();
-    ok(/Falta volume a colher/.test(linha) && /-6\.450/.test(linha), 'a linha da cultivar fica marcada com o saldo negativo');
+    ok(/Falta volume a colher/.test(linha) && /-5\.925/.test(linha), 'a linha da cultivar fica marcada com o saldo negativo');
     const dash = await p.getByTestId('dash-metas').innerText();
     ok(/40\.000/.test(dash) && /4\.500/.test(dash) && /-35\.500/.test(dash), 'painel: meta total 40.000, internalizado 4.500, GAP -35.500');
     ok(/40\.000,00/.test(await p.getByTestId('tabela-dash').innerText()) && /11,25/.test(await p.getByTestId('tabela-dash').innerText()), 'tabela do painel: meta, internalizado, GAP e 11,25% de atingimento');

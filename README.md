@@ -28,18 +28,20 @@ Na ficha do campo, informe a **data da dessecação** e os **dias até a colheit
 **“Véspera — encaminhar pré-colheita”**, com o botão **Programar** para já escolher o técnico. A área dessecada é
 opcional e permite registrar dessecações parciais (mais de uma por campo).
 
-### Volume colhido e aproveitamento para semente
+### Volume colhido, aprovado e internalizado
 
-Na ficha do campo, seção **Volume colhido e aproveitamento para semente**:
+Na ficha do campo, seção **Volume colhido, aprovado e internalizado**:
 
 - **Lançar volume do dia**: dia, volume colhido (em kg, sacos ou toneladas) e, se parte da carga foi para grão, o volume
   **aprovado e internalizado** na UBS (em branco = tudo aprovado). A área colhida no dia é opcional. Pode haver mais de
   um lançamento por dia, e cada um pode ser corrigido ou excluído.
-- **Produtividade do produtor (sc/ha)**: a produtividade geral da área que o produtor passar.
-- O sistema calcula o **potencial da área** (produtividade × área) e o **aproveitamento para semente**
-  (aprovado e internalizado ÷ potencial). Com a colheita em andamento e a área colhida lançada, a conta é feita só sobre
-  a área já colhida; com a colheita finalizada, sobre o campo inteiro. Sem a produtividade do produtor, o potencial usa
-  a produtividade estimada da aba Internalização e a tela avisa.
+- **Esses volumes são a informação principal**: só eles alimentam as outras telas (aba Metas, aba Internalização e
+  lista de campos).
+- **Produtividade do produtor (sc/ha)** — *só informativa*: a produtividade geral da área que o produtor passar fica
+  registrada apenas na ficha. Com ela o sistema mostra o **potencial da área** (produtividade × área), **quanto deixou
+  de ir para a UBS** (potencial − entregue) e o **aproveitamento para semente** (aprovado e internalizado ÷ potencial).
+  Ela não entra nas metas, na projeção de internalização nem no cálculo do que ainda há para colher. Com a colheita em
+  andamento e a área colhida lançada, a comparação é feita só sobre a área já colhida; finalizada, sobre o campo inteiro.
 
 ### Histórico de técnicos no campo
 
@@ -65,7 +67,7 @@ rendimento podem ser ajustados por cultivar. Também dá para digitar a meta de 
 O **total internalizado** vem dos volumes aprovados lançados nas fichas dos campos.
 
 O **alerta** aparece quando o que falta internalizar é maior que o volume previsto nos campos ainda por colher daquela
-cultivar (área restante × sc/ha × aproveitamento). A aba mostra o déficit em sacos, a área que seria necessária e
+cultivar (área restante × sc/ha × aproveitamento da aba Internalização). A aba mostra o déficit em sacos, a área que seria necessária e
 quantos big bags a projeção alcança.
 
 ## Como colocar no ar

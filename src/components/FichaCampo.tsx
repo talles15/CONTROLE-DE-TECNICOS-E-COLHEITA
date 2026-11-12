@@ -217,7 +217,7 @@ function unidadeSalva(): Unidade {
   return 'kg';
 }
 
-/** Volume colhido dia a dia, produtividade do produtor e aproveitamento para semente. */
+/** Volume colhido dia a dia (o que conversa com as outras abas) e, à parte, a produtividade do produtor (só informativa). */
 function ColheitaReal({ campo }: { campo: Campo }) {
   const d = useDados();
   const P = d.dados.config.params;
@@ -285,8 +285,8 @@ function ColheitaReal({ campo }: { campo: Campo }) {
     <div className="secao" data-testid="colheita-real">
       <div className="card-head" style={{ marginBottom: 8 }}>
         <div>
-          <h3>Volume colhido e aproveitamento para semente</h3>
-          <div className="sub">Lance o volume a cada dia de colheita. Com a produtividade informada pelo produtor, o sistema mostra o potencial da área e quanto dele virou semente.</div>
+          <h3>Volume colhido, aprovado e internalizado</h3>
+          <div className="sub">Lance o volume a cada dia de colheita. O volume aprovado e internalizado é o que alimenta as abas Metas e Internalização.</div>
         </div>
         <label className="un">
           <span>Volumes em</span>
@@ -299,23 +299,8 @@ function ColheitaReal({ campo }: { campo: Campo }) {
 
       <div className="reais">
         <div className="real"><span>Colhido e entregue na UBS</span><b>{n0(r.colhidoSc)} sc</b><small>{n1(r.colhidoKg / 1000)} t · {r.dias} dia(s) lançado(s)</small></div>
-        <div className="real"><span>Aprovado e internalizado</span><b>{n0(r.internSc)} sc</b><small>{r.aprovadoDoEntreguePct != null ? `${n1(r.aprovadoDoEntreguePct)}% do entregue` : 'sem lançamentos'}{r.internScHa != null ? ` · ${n1(r.internScHa)} sc/ha` : ''}</small></div>
-        <div className="real"><span>Potencial da área</span><b>{n0(r.potencialSc)} sc</b>
-          <small>{n1(r.prodHa)} sc/ha × {n1(r.areaBase)} ha{r.parcial ? ' já colhidos' : ''} · {r.prodOrigem === 'produtor' ? 'produtividade do produtor' : 'produtividade estimada (painel)'}</small></div>
-        <div className="real dest" data-testid="aprov-semente"><span>Aproveitamento para semente</span><b>{r.aprovPct != null ? `${n1(r.aprovPct)}%` : '—'}</b>
-          <small>{temVolume ? `${n0(r.naoAproveitadoSc)} sc do potencial não viraram semente` : 'internalizado ÷ potencial da área'}</small></div>
+        <div className="real dest" data-testid="internalizado"><span>Aprovado e internalizado</span><b>{n0(r.internSc)} sc</b><small>{r.aprovadoDoEntreguePct != null ? `${n1(r.aprovadoDoEntreguePct)}% do entregue` : 'sem lançamentos'}{r.internScHa != null ? ` · ${n1(r.internScHa)} sc/ha` : ''}</small></div>
         {emAndamento && campo.ativo && <div className="real"><span>Ainda a colher</span><b>{n1(r.areaRestante)} ha</b><small>≈ {n0(r.scRestante)} sc a internalizar{r.restanteEstimado ? ' · área estimada pelo volume' : ''}</small></div>}
-      </div>
-      {temVolume && emAndamento && !r.parcial && <div className="sub" style={{ marginTop: 6 }}>Colheita em andamento: o aproveitamento está sendo medido contra o campo inteiro. Informe a área colhida nos lançamentos para ver o parcial, ou finalize a colheita.</div>}
-      {r.prodOrigem === 'estimada' && temVolume && <div className="sub" style={{ marginTop: 6 }}>O potencial usa a produtividade estimada. Informe abaixo a produtividade que o produtor passar para o cálculo ficar real.</div>}
-
-      <div className="form" style={{ marginTop: 12 }}>
-        <div className="campo">
-          <label htmlFor="crProd">Produtividade do produtor (sc/ha)</label>
-          <input id="crProd" type="number" min={0} step="0.1" placeholder={`estimada: ${n1(campo.ov_sc_ha ?? P.scHa)}`} value={prod}
-            onChange={(e) => setProd(e.target.value)} onBlur={gravarProd} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
-          <div className="hint">Produtividade geral da área, em sacos de {n0(P.kg)} kg por hectare.</div>
-        </div>
       </div>
 
       <h3 style={{ marginTop: 14 }}>{edit ? 'Corrigir lançamento' : 'Lançar volume do dia'}</h3>
@@ -379,6 +364,30 @@ function ColheitaReal({ campo }: { campo: Campo }) {
           </table>
         </div>
       )}
+
+      <div className="informativo" data-testid="prod-produtor">
+        <h3>Produtividade do produtor <span className="badge">só informativo</span></h3>
+        <div className="sub">Fica registrada apenas nesta ficha, para dar uma noção de quanto do potencial da área deixou de ir para a UBS. Não entra nas metas, na internalização nem nas outras telas.</div>
+        <div className="form" style={{ marginTop: 10 }}>
+          <div className="campo">
+            <label htmlFor="crProd">Produtividade do produtor (sc/ha)</label>
+            <input id="crProd" type="number" min={0} step="0.1" placeholder="informada pelo produtor" value={prod}
+              onChange={(e) => setProd(e.target.value)} onBlur={gravarProd} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+            <div className="hint">Produtividade geral da área, em sacos de {n0(P.kg)} kg por hectare.</div>
+          </div>
+        </div>
+        {r.potencialSc != null && r.prodHa != null ? (
+          <div className="reais" style={{ marginTop: 10 }}>
+            <div className="real"><span>Potencial da área</span><b>{n0(r.potencialSc)} sc</b><small>{n1(r.prodHa)} sc/ha × {n1(r.areaBase)} ha{r.parcial ? ' já colhidos' : ''}</small></div>
+            <div className="real" data-testid="nao-enviado"><span>Deixou de ir para a UBS</span><b>{r.naoEnviadoSc != null ? `${n0(r.naoEnviadoSc)} sc` : '—'}</b>
+              <small>{r.naoEnviadoSc != null && r.potencialSc > 0 ? `${n1((r.naoEnviadoSc / r.potencialSc) * 100)}% do potencial · potencial − entregue` : 'aparece depois do 1º lançamento de volume'}</small></div>
+            <div className="real" data-testid="aprov-semente"><span>Aproveitamento para semente</span><b>{r.aprovPct != null ? `${n1(r.aprovPct)}%` : '—'}</b><small>aprovado e internalizado ÷ potencial</small></div>
+          </div>
+        ) : (
+          <div className="sub" style={{ marginTop: 8 }}>Informe a produtividade que o produtor passar para ver o potencial da área e quanto dele deixou de ir para a UBS.</div>
+        )}
+        {temVolume && emAndamento && !r.parcial && r.potencialSc != null && <div className="sub" style={{ marginTop: 6 }}>Colheita em andamento: a comparação está sendo feita contra o campo inteiro. Informe a área colhida nos lançamentos para ver o parcial, ou finalize a colheita.</div>}
+      </div>
     </div>
   );
 }

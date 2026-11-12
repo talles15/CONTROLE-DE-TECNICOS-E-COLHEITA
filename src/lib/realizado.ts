@@ -1,5 +1,7 @@
-// Colheita real do campo: volume lançado dia a dia, produtividade informada pelo produtor,
-// aproveitamento para semente e o que ainda falta colher.
+// Colheita real do campo: volume lançado dia a dia (colhido, aprovado e internalizado) e o que ainda falta colher.
+// Só esses volumes conversam com as outras abas (Metas, Internalização, lista de campos).
+// A produtividade informada pelo produtor é apenas informativa e fica na ficha: serve para dar
+// uma noção de quanto do potencial da área deixou de ir para a UBS.
 import { areaDe } from './projecao';
 import type { Campo, ColheitaDia, Parametros } from './types';
 
@@ -23,15 +25,14 @@ export interface RealCampo {
   areaBase: number;
   /** true = colheita em andamento e o potencial considera só a área já colhida */
   parcial: boolean;
-  /** produtividade usada no potencial (sc/ha) e de onde ela veio */
-  prodHa: number;
-  prodOrigem: 'produtor' | 'estimada';
-  /** o que a área poderia ter rendido = produtividade × área */
-  potencialSc: number;
-  /** aproveitamento para semente = internalizado ÷ potencial */
+  /** produtividade informada pelo produtor (sc/ha); null = não informada. Só informativa. */
+  prodHa: number | null;
+  /** o que a área poderia ter rendido = produtividade do produtor × área (null sem a produtividade) */
+  potencialSc: number | null;
+  /** potencial que deixou de ser enviado para a UBS = potencial − colhido e entregue */
+  naoEnviadoSc: number | null;
+  /** aproveitamento para semente = aprovado e internalizado ÷ potencial */
   aprovPct: number | null;
-  /** potencial que não virou semente internalizada */
-  naoAproveitadoSc: number;
   /** sacos internalizados por hectare */
   internScHa: number | null;
   /** área que ainda falta colher (0 quando a colheita foi encerrada) */
@@ -68,13 +69,12 @@ export function realCampo(c: Campo, lanc: ColheitaDia[], P: Parametros): RealCam
   // colheita encerrada → potencial sobre o campo inteiro; em andamento → sobre a área já colhida, se informada
   const parcial = !c.colheita_fim && areaColhida != null;
   const areaBase = parcial ? areaColhida! : areaCampo;
-  const prodOrigem = c.prod_real_sc_ha != null ? 'produtor' : 'estimada';
-  const prodHa = c.prod_real_sc_ha ?? c.ov_sc_ha ?? P.scHa;
-  const potencialSc = areaBase * prodHa;
+  const prodHa = c.prod_real_sc_ha;
+  const potencialSc = prodHa != null ? areaBase * prodHa : null;
   const temVolume = lancamentos.length > 0;
 
-  // o que ainda vem deste campo
-  const esperadoHa = (prodHa * (c.ov_aprov ?? P.aprov)) / 100;
+  // o que ainda vem deste campo: usa só os parâmetros da aba Internalização, nunca a produtividade do produtor
+  const esperadoHa = ((c.ov_sc_ha ?? P.scHa) * (c.ov_aprov ?? P.aprov)) / 100;
   let areaRestante = areaCampo;
   let restanteEstimado = false;
   if (!c.ativo || !c.incluir_projecao || c.colheita_fim) areaRestante = 0;
@@ -89,9 +89,9 @@ export function realCampo(c: Campo, lanc: ColheitaDia[], P: Parametros): RealCam
     dias: new Set(lancamentos.map((l) => l.data)).size,
     colhidoKg, internKg, colhidoSc, internSc,
     aprovadoDoEntreguePct: colhidoKg > 0 ? (internKg / colhidoKg) * 100 : null,
-    areaCampo, areaColhida, areaBase, parcial, prodHa, prodOrigem, potencialSc,
-    aprovPct: temVolume && potencialSc > 0 ? (internSc / potencialSc) * 100 : null,
-    naoAproveitadoSc: temVolume ? Math.max(0, potencialSc - internSc) : 0,
+    areaCampo, areaColhida, areaBase, parcial, prodHa, potencialSc,
+    naoEnviadoSc: temVolume && potencialSc != null ? Math.max(0, potencialSc - colhidoSc) : null,
+    aprovPct: temVolume && potencialSc != null && potencialSc > 0 ? (internSc / potencialSc) * 100 : null,
     internScHa: temVolume && areaBase > 0 ? internSc / areaBase : null,
     areaRestante, restanteEstimado,
     scRestante: areaRestante * esperadoHa,
