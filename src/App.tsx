@@ -11,6 +11,7 @@ import Importar from './pages/Importar';
 import Internalizacao from './pages/Internalizacao';
 import Login from './pages/Login';
 import Mapa from './pages/Mapa';
+import Metas from './pages/Metas';
 import Programacao from './pages/Programacao';
 import Tecnicos from './pages/Tecnicos';
 
@@ -41,7 +42,7 @@ export default function App() {
 
 function Casca({ email }: { email: string | null }) {
   const rota = useRota();
-  const { store, alertas } = useDados();
+  const { store, alertas, resumoMetas, dados } = useDados();
   const urgentes = alertas.filter((a) => a.tipo !== 'proximos').length;
   const ficha = rota.params.ficha;
   const fecharFicha = () => {
@@ -76,16 +77,24 @@ function Casca({ email }: { email: string | null }) {
               <button key={a.id} className={'aba' + (rota.aba === a.id ? ' on' : '')} onClick={() => ir(a.id)}>
                 {a.rotulo}
                 {a.id === 'calendario' && urgentes > 0 && <span className="cont" title="Alertas de colheita">{urgentes}</span>}
+                {a.id === 'metas' && resumoMetas.alertas.length > 0 && <span className="cont" title="Cultivares com demanda maior que o disponível para colher">{resumoMetas.alertas.length}</span>}
               </button>
             ))}
           </nav>
         </div>
       </div>
       <main className="wrap">
+        {dados.faltaMigracao && (
+          <div className="caixa-info atencao" data-testid="falta-migracao">
+            <b>Falta atualizar o banco.</b> Para usar o volume colhido, a produtividade do produtor e a aba Metas, abra o Supabase → SQL Editor, cole o conteúdo de{' '}
+            <b>supabase/migrations/0002_colheita_real_e_metas.sql</b> e clique em Run. O restante do sistema segue funcionando normalmente.
+          </div>
+        )}
         {rota.aba === 'calendario' && <Calendario />}
         {rota.aba === 'campos' && <Campos />}
         {rota.aba === 'programacao' && <Programacao params={rota.params} />}
         {rota.aba === 'internalizacao' && <Internalizacao />}
+        {rota.aba === 'metas' && <Metas />}
         {rota.aba === 'mapa' && <Mapa />}
         {rota.aba === 'tecnicos' && <Tecnicos />}
         {rota.aba === 'importar' && <Importar />}

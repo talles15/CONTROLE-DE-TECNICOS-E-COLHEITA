@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 
-export type Aba = 'calendario' | 'campos' | 'programacao' | 'internalizacao' | 'mapa' | 'tecnicos' | 'importar';
+export type Aba = 'calendario' | 'campos' | 'programacao' | 'internalizacao' | 'metas' | 'mapa' | 'tecnicos' | 'importar';
 export const ABAS: { id: Aba; rotulo: string }[] = [
   { id: 'calendario', rotulo: 'Calendário' },
   { id: 'campos', rotulo: 'Campos' },
   { id: 'programacao', rotulo: 'Programação' },
   { id: 'internalizacao', rotulo: 'Internalização' },
+  { id: 'metas', rotulo: 'Metas' },
   { id: 'mapa', rotulo: 'Mapa' },
   { id: 'tecnicos', rotulo: 'Técnicos' },
   { id: 'importar', rotulo: 'Importar campos' },

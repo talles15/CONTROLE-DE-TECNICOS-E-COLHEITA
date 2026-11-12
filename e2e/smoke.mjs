@@ -126,7 +126,7 @@ try {
   await vespera.getByRole('button', { name: 'Programar' }).first().click();
   await p.waitForTimeout(300);
   ok(/data=2026-11-15/.test(p.url()), 'o botão Programar abre a programação do dia 15/11');
-  ok((await p.getByLabel('Campo', { exact: true }).inputValue()).startsWith(alvo), 'campo já vem preenchido');
+  ok((await p.getByTestId('campos-escolhidos').innerText()).includes(alvo), 'campo já vem escolhido');
   ok((await p.locator('#pgAtiv').inputValue()) === 'coleta_pre', 'atividade sugerida: passar pegando pré-colheita');
   await p.locator('#pgTec').selectOption({ label: 'Técnico E2E' });
   await p.locator('#pgObs').fill('Chegar cedo');
@@ -188,6 +188,146 @@ try {
   await p.locator('[data-dia="2026-11-15"]').click();
   ok(/Colheita iniciada em 15\/11\/2026/.test(await p.getByTestId('dia-detalhe').innerText()), 'o calendário explica por que o campo aparece no dia');
 
+  console.log('Vários campos para o mesmo técnico');
+  await ir('programacao?data=2026-11-17');
+  const busca = p.getByLabel('Campo', { exact: true });
+  await busca.click();
+  await p.locator('.sel-campo .op').first().click();
+  await p.locator('.sel-campo .op').first().click();
+  await p.locator('h2', { hasText: 'Adicionar campos' }).click();
+  const chips = p.getByTestId('campos-escolhidos').locator('.chip-campo b');
+  ok((await chips.count()) === 2, 'dá para escolher mais de um campo antes de adicionar');
+  const [rota1, rota2] = [await chips.nth(0).innerText(), await chips.nth(1).innerText()];
+  await p.locator('#pgTec').selectOption({ label: 'Técnico E2E' });
+  await p.locator('#pgAtiv').selectOption('coleta_pre');
+  await p.getByRole('button', { name: 'Adicionar 2 campos' }).click();
+  await p.getByText('2 campos programados para Técnico E2E.').waitFor();
+  const cartaoRota = p.locator('[data-tecnico="Técnico E2E"]');
+  ok((await cartaoRota.locator('[data-campo]').count()) === 2, 'o mesmo técnico fica com os dois campos de pré-colheita no dia');
+  await cartaoRota.getByRole('button', { name: 'Ver texto' }).click();
+  const textoRota = await p.getByTestId('texto-whats').inputValue();
+  ok(textoRota.includes(`Campo ${rota1}*`) && textoRota.includes(`Campo ${rota2}*`) && textoRota.includes('Total: 2 campo(s).') && (textoRota.match(/PASSAR PEGANDO PRÉ-COLHEITA/g) ?? []).length === 2,
+    'a mensagem do técnico lista os dois campos para pegar pré-colheita');
+  await p.getByRole('button', { name: 'Fechar' }).click();
+  // nas sugestões também dá para marcar vários campos e mandar o mesmo técnico
+  await ir('programacao?data=2026-11-16');
+  const sug = p.getByTestId('sugestoes');
+  if ((await sug.count()) && (await sug.locator('tbody tr').count()) >= 1) {
+    await sug.getByLabel('Marcar todos').check();
+    const n = await sug.locator('tbody tr').count();
+    await sug.getByLabel('Técnico para os campos marcados').selectOption({ label: 'Técnico Dois' });
+    await sug.getByRole('button', { name: 'Adicionar marcados' }).click();
+    await p.locator('[data-tecnico="Técnico Dois"] [data-campo]').first().waitFor();
+    ok((await p.locator('[data-tecnico="Técnico Dois"] [data-campo]').count()) === n, `sugestões: ${n} campo(s) marcados vão de uma vez para o mesmo técnico`);
+  }
+
+  console.log('Histórico de técnicos no campo');
+  await ir('programacao?data=2026-11-18');
+  await busca.click();
+  await busca.fill(rota1);
+  await p.locator('.sel-campo .op').first().click();
+  await busca.press('Escape');
+  await p.locator('#pgTec').selectOption({ label: 'Técnico Dois' });
+  await p.locator('#pgAtiv').selectOption('colheita_pre');
+  await p.getByRole('button', { name: 'Adicionar', exact: true }).first().click();
+  await p.locator(`[data-tecnico="Técnico Dois"] [data-campo="${rota1}"]`).waitFor();
+  await p.locator(`[data-tecnico="Técnico Dois"] [data-campo="${rota1}"]`).getByRole('button', { name: rota1, exact: true }).click();
+  const hist = p.getByTestId('historico-tecnicos');
+  const textoHist = await hist.innerText();
+  ok(/2 escala\(s\) de 2 técnico\(s\), de 17\/11\/2026 a 18\/11\/2026/.test(textoHist), 'a ficha guarda o histórico: 2 escalas de 2 técnicos, de 17/11 a 18/11');
+  ok(/Técnico E2E\s+1× pré-colheita/.test(textoHist) && /Técnico Dois\s+1× colheita/.test(textoHist), 'o resumo mostra quem foi escalado e para quê (colheita ou pré-colheita)');
+  const [dlHist] = await Promise.all([p.waitForEvent('download'), hist.getByRole('button', { name: 'Exportar CSV' }).click()]);
+  ok(dlHist.suggestedFilename() === `historico_tecnicos_${rota1}.csv`, 'exporta o histórico do campo em CSV');
+  await foto('7-ficha-historico');
+  await p.getByRole('button', { name: 'Fechar' }).click();
+
+  console.log('Volume colhido e aproveitamento para semente');
+  await ir('campos');
+  await p.getByPlaceholder('Buscar campo, cliente, fazenda, cultivar…').fill(alvo);
+  await p.locator('tbody tr').first().click();
+  const ficha = p.getByTestId('colheita-real');
+  await ficha.getByLabel('Produtividade do produtor (sc/ha)').fill('60');
+  await ficha.getByLabel('Produtividade do produtor (sc/ha)').blur();
+  await p.getByText('Produtividade do produtor salva.').waitFor();
+  await ficha.getByLabel('Dia', { exact: true }).fill('2026-11-15');
+  await ficha.getByLabel('Volume colhido (kg)').fill('180000');
+  await ficha.getByLabel('Área colhida no dia (ha)').fill('100');
+  await ficha.getByRole('button', { name: 'Lançar volume' }).click();
+  await p.getByText('Volume colhido lançado.').waitFor();
+  await ficha.getByLabel('Dia', { exact: true }).fill('2026-11-16');
+  await ficha.getByLabel('Volume colhido (kg)').fill('120000');
+  await ficha.getByLabel('Aprovado e internalizado (kg)').fill('90000');
+  await ficha.getByLabel('Área colhida no dia (ha)').fill('50');
+  await ficha.getByRole('button', { name: 'Lançar volume' }).click();
+  await ficha.getByRole('row', { name: /16\/11\/2026/ }).waitFor();
+  const resumoReal = await ficha.locator('.reais').first().innerText();
+  // colhido 300.000 kg = 5.000 sc; aprovado 270.000 kg = 4.500 sc; potencial 150 ha × 60 sc/ha = 9.000 sc → 50%
+  ok(/5\.000 sc/.test(resumoReal) && /4\.500 sc/.test(resumoReal) && /90,0% do entregue/.test(resumoReal), 'soma os lançamentos do dia a dia: 5.000 sc colhidos, 4.500 sc aprovados e internalizados');
+  // a produtividade do produtor é só informativa: não muda o "ainda a colher" (150 ha × 65 sc/ha × 70% do painel)
+  ok(/150,0 ha/.test(resumoReal) && /6\.825 sc a internalizar/.test(resumoReal), 'o que falta colher usa os parâmetros da Internalização, não a produtividade do produtor');
+  const info = await p.getByTestId('prod-produtor').innerText();
+  ok(/só informativo/i.test(info) && /9\.000 sc/.test(info) && /60,0 sc\/ha × 150,0 ha/.test(info), 'potencial = produtividade do produtor × área colhida (60 sc/ha × 150 ha = 9.000 sc), em um bloco só informativo');
+  ok(/4\.000 sc/.test(await p.getByTestId('nao-enviado').innerText()), 'mostra quanto deixou de ir para a UBS: 9.000 − 5.000 entregues = 4.000 sc');
+  ok(/50,0%/.test(await p.getByTestId('aprov-semente').innerText()), 'aproveitamento para semente = 4.500 ÷ 9.000 = 50,0%');
+  await ficha.getByRole('row', { name: /16\/11\/2026/ }).getByRole('button', { name: 'Corrigir' }).click();
+  await ficha.getByLabel('Aprovado e internalizado (kg)').fill('');
+  await ficha.getByRole('button', { name: 'Salvar correção' }).click();
+  await p.getByText('Lançamento corrigido.').waitFor();
+  ok(/55,6%/.test(await p.getByTestId('aprov-semente').innerText()), 'corrigir um lançamento recalcula na hora (5.000 ÷ 9.000 = 55,6%)');
+  await ficha.getByRole('row', { name: /16\/11\/2026/ }).getByRole('button', { name: 'Corrigir' }).click();
+  await ficha.getByLabel('Aprovado e internalizado (kg)').fill('90000');
+  await ficha.getByRole('button', { name: 'Salvar correção' }).click();
+  await p.getByText('Lançamento corrigido.').last().waitFor();
+  await foto('8-ficha-volume');
+  await p.getByRole('button', { name: 'Fechar' }).click();
+  const linhaCampo = await p.locator('tbody tr').first().innerText();
+  ok(/4\.500/.test(linhaCampo) && !/%/.test(linhaCampo), 'a lista de campos leva só o volume internalizado; produtividade e aproveitamento ficam na ficha');
+
+  console.log('Metas por cultivar');
+  await ir('metas');
+  const cultivar = campos.find((c) => c.num_campo === alvo).produto;
+  const linhaMeta = p.getByTestId('tabela-metas').locator(`tr[data-cultivar="${cultivar}"]`);
+  ok(await linhaMeta.isVisible(), 'as cultivares dos campos aparecem sozinhas na aba Metas');
+  const bb = p.getByLabel(`Big bags planejados ${cultivar}`);
+  if (!real) {
+    // CULT 74: 4.500 sc internalizados; a colher (150 ha + 500 ha) × 65 sc/ha × 70% = 29.575 sc
+    // (a produtividade de 60 sc/ha informada pelo produtor não entra nesta conta)
+    await bb.fill('1000');
+    await bb.press('Enter');
+    await p.getByText(`Meta de ${cultivar} salva.`).waitFor();
+    let linha = await linhaMeta.innerText();
+    ok(/20\.000/.test(linha) && /15\.500/.test(linha) && /29\.575/.test(linha) && /Dá para fechar/.test(linha), '1.000 big bags → meta de 20.000 sc; faltam 15.500 e há 29.575 sc a colher: dá para fechar');
+    ok((await p.getByTestId('alerta-metas').count()) === 0, 'sem alerta enquanto o que falta cabe no que há para colher');
+    await bb.fill('2000');
+    await bb.press('Enter');
+    await p.getByTestId('alerta-metas').waitFor();
+    const alerta = await p.getByTestId('alerta-metas').innerText();
+    ok(alerta.includes(cultivar) && /faltam 35\.500 sc/.test(alerta) && /29\.575 sc/.test(alerta) && /Déficit de 5\.925 sc/.test(alerta), '2.000 big bags → faltam 35.500 sc e só há 29.575 a colher: alerta com déficit de 5.925 sc');
+    linha = await linhaMeta.innerText();
+    ok(/Falta volume a colher/.test(linha) && /-5\.925/.test(linha), 'a linha da cultivar fica marcada com o saldo negativo');
+    const dash = await p.getByTestId('dash-metas').innerText();
+    ok(/40\.000/.test(dash) && /4\.500/.test(dash) && /-35\.500/.test(dash), 'painel: meta total 40.000, internalizado 4.500, GAP -35.500');
+    ok(/40\.000,00/.test(await p.getByTestId('tabela-dash').innerText()) && /11,25/.test(await p.getByTestId('tabela-dash').innerText()), 'tabela do painel: meta, internalizado, GAP e 11,25% de atingimento');
+  } else {
+    await bb.fill('999999');
+    await bb.press('Enter');
+    await p.getByTestId('alerta-metas').waitFor();
+    ok((await p.getByTestId('alerta-metas').innerText()).includes(cultivar), 'uma meta maior que o disponível gera o alerta da cultivar');
+  }
+  ok((await p.locator('.aba', { hasText: 'Metas' }).locator('.cont').innerText()) === '1', 'a aba Metas mostra o nº de cultivares em alerta');
+  ok((await p.locator('[data-barra]').count()) >= 1, 'desenha o gráfico de realizado × GAP');
+  await p.getByRole('button', { name: `Detalhes ${cultivar}` }).click();
+  await p.getByLabel('Meta de internalização manual (sc 60 kg)').fill('4000');
+  ok(/Meta de internalização: 4\.000 sc/.test(await p.getByTestId('conta-meta').innerText()), 'a meta de internalização pode ser digitada à mão');
+  await p.getByRole('button', { name: 'Salvar meta' }).click();
+  await p.getByTestId('alerta-metas').waitFor({ state: 'detached' });
+  ok(/Meta atingida/.test(await linhaMeta.innerText()), 'com a meta manual de 4.000 sc a cultivar aparece como atingida e o alerta some');
+  await p.getByRole('button', { name: `Detalhes ${cultivar}` }).click();
+  await p.getByLabel('Meta de internalização manual (sc 60 kg)').fill('');
+  await p.getByRole('button', { name: 'Salvar meta' }).click();
+  await p.getByTestId('alerta-metas').waitFor();
+  await foto('9-metas');
+
   console.log('Internalização');
   await ir('internalizacao');
   const kpis = await p.locator('.kpis').innerText();
@@ -196,6 +336,7 @@ try {
   ok(await p.getByRole('row', { name: new RegExp(alvo + '.*colheita iniciada') }).first().isVisible(), 'usa a colheita iniciada como início do campo');
   // 1.030 ha com data × 65 sc/ha × 70% = 46.865 sc (o campo sem data de plantio fica fora)
   if (!real) ok(/46\.865 sc/.test(kpis) && /1 campos/.test(kpis), 'total aproveitado = 1.030 ha × 65 sc/ha × 70% = 46.865 sc, com 1 campo fora por falta de data');
+  ok(/Internalizado real \(UBS\)\s+4\.500 sc/.test(kpis), 'a internalização mostra o realizado lançado nos campos');
   await foto('5-internalizacao');
 
   console.log('Mapa');

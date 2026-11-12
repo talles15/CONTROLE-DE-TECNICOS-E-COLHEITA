@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { hoje as hojeIso } from './dates';
+import { resumirMetas, type ResumoMetas } from './metas';
+import { agruparColheitas, realCampo, type RealCampo } from './realizado';
 import { gerarAlertas, resumoCampo, type Alerta, type Resumo } from './status';
-import type { NovaDessecacao, NovaProgramacao, NovoTecnico, Store } from './store';
-import type { Campo, CampoPlanilha, Config, Dados, Dessecacao, Programacao, Tecnico } from './types';
+import type { NovaColheita, NovaDessecacao, NovaMeta, NovaProgramacao, NovoTecnico, Store } from './store';
+import { CONFIG_PADRAO, type Campo, type CampoPlanilha, type Config, type Dados, type Dessecacao, type MetaCultivar, type Programacao, type Tecnico } from './types';
 
 export interface Aviso {
   id: number;
@@ -19,6 +21,10 @@ interface Ctx {
   dessPorCampo: Map<string, Dessecacao[]>;
   resumos: Map<string, Resumo>;
   provaveis: Map<string, string | null>;
+  /** colheita real de cada campo: volume lançado, aproveitamento e o que falta colher */
+  reais: Map<string, RealCampo>;
+  /** metas por cultivar × internalizado × o que ainda há para colher */
+  resumoMetas: ResumoMetas;
   alertas: Alerta[];
   avisar: (texto: string, tipo?: Aviso['tipo']) => void;
   recarregar: () => Promise<void>;
@@ -32,6 +38,10 @@ interface Ctx {
   salvarProgramacoes: (ps: NovaProgramacao[], msg?: string) => Promise<boolean>;
   atualizarProgramacao: (id: string, patch: Partial<Programacao>, msg?: string) => Promise<boolean>;
   excluirProgramacao: (id: string) => Promise<boolean>;
+  salvarColheitas: (cs: NovaColheita[], msg?: string) => Promise<boolean>;
+  excluirColheita: (id: string) => Promise<boolean>;
+  salvarMeta: (m: NovaMeta, msg?: string) => Promise<MetaCultivar | null>;
+  excluirMeta: (id: string) => Promise<boolean>;
   salvarConfig: (c: Config) => void;
 }
 
@@ -106,7 +116,7 @@ export function ProvedorDados({ store, children, onSair }: { store: Store; child
   );
 
   const derivados = useMemo(() => {
-    const d = dados ?? { tecnicos: [], campos: [], dessecacoes: [], programacoes: [] };
+    const d = dados ?? { tecnicos: [], campos: [], dessecacoes: [], programacoes: [], colheitas: [], metas: [], config: CONFIG_PADRAO };
     const campoPorId = new Map(d.campos.map((c) => [c.id, c]));
     const tecnicoPorId = new Map(d.tecnicos.map((t) => [t.id, t]));
     const dessPorCampo = new Map<string, Dessecacao[]>();
@@ -121,7 +131,10 @@ export function ProvedorDados({ store, children, onSair }: { store: Store; child
       resumos.set(c.id, r);
       provaveis.set(c.id, r.provavel);
     }
-    return { campoPorId, tecnicoPorId, dessPorCampo, resumos, provaveis };
+    const lanc = agruparColheitas(d.colheitas);
+    const reais = new Map(d.campos.map((c) => [c.id, realCampo(c, lanc.get(c.id) ?? [], d.config.params)]));
+    const resumoMetas = resumirMetas(d.campos, reais, d.metas, d.config.params, d.config.metas);
+    return { campoPorId, tecnicoPorId, dessPorCampo, resumos, provaveis, reais, resumoMetas };
   }, [dados, hoje]);
 
   const alertas = useMemo(
@@ -186,6 +199,7 @@ export function ProvedorDados({ store, children, onSair }: { store: Store; child
           campos: d.campos.filter((c) => c.id !== id),
           dessecacoes: d.dessecacoes.filter((x) => x.campo_id !== id),
           programacoes: d.programacoes.filter((x) => x.campo_id !== id),
+          colheitas: d.colheitas.filter((x) => x.campo_id !== id),
         }));
       }
       return !!r;
@@ -213,6 +227,26 @@ export function ProvedorDados({ store, children, onSair }: { store: Store; child
     excluirProgramacao: async (id) => {
       const r = await tentar(async () => (await store.excluirProgramacao(id), true), 'Programação removida.');
       if (r) mut((d) => ({ ...d, programacoes: d.programacoes.filter((x) => x.id !== id) }));
+      return !!r;
+    },
+    salvarColheitas: async (cs, msg = 'Volume colhido lançado.') => {
+      const r = await tentar(() => store.salvarColheitas(cs), msg);
+      if (r) mut((d) => ({ ...d, colheitas: troca(d.colheitas, r) }));
+      return !!r;
+    },
+    excluirColheita: async (id) => {
+      const r = await tentar(async () => (await store.excluirColheita(id), true), 'Lançamento excluído.');
+      if (r) mut((d) => ({ ...d, colheitas: d.colheitas.filter((x) => x.id !== id) }));
+      return !!r;
+    },
+    salvarMeta: async (m, msg = 'Meta salva.') => {
+      const r = await tentar(() => store.salvarMeta(m), msg);
+      if (r) mut((d) => ({ ...d, metas: troca(d.metas, [r]) }));
+      return r;
+    },
+    excluirMeta: async (id) => {
+      const r = await tentar(async () => (await store.excluirMeta(id), true), 'Meta excluída.');
+      if (r) mut((d) => ({ ...d, metas: d.metas.filter((x) => x.id !== id) }));
       return !!r;
     },
     // parâmetros mudam a cada tecla: atualiza a tela na hora e grava com pequeno atraso

@@ -1,11 +1,12 @@
 import { Fragment, useState } from 'react';
 import { useDados } from '../lib/dados';
 import { br, dataProvavel, diaSemana, somaDias } from '../lib/dates';
-import { n1, n2, num } from '../lib/format';
+import { baixar, csv, n0, n1, n2, num } from '../lib/format';
 import { haversine } from '../lib/geo';
 import { chaveCampo } from '../lib/importPlanting';
 import { ir } from '../lib/rota';
-import { ATIVIDADES, STATUS_PROG, type Campo, type CampoPlanilha } from '../lib/types';
+import { ATIVIDADES, STATUS_PROG, type Atividade, type Campo, type CampoPlanilha, type ColheitaDia, type Programacao, type Tecnico } from '../lib/types';
+import { aprovadoKg, deKg, paraKg, UNIDADES, type Unidade } from '../lib/realizado';
 import { linkMapa } from '../lib/whatsapp';
 import { ControlesProg } from './ProgControles';
 import { Modal, Sit, TecChip } from './ui';
@@ -14,14 +15,12 @@ export function FichaCampo({ campoId, onFechar }: { campoId: string; onFechar: (
   const d = useDados();
   const campo = d.campoPorId.get(campoId);
   const [editando, setEditando] = useState(false);
-  const [alterando, setAlterando] = useState<string | null>(null);
   if (!campo) {
     return <Modal titulo="Campo não encontrado" onFechar={onFechar}><p className="sub">Ele pode ter sido excluído.</p></Modal>;
   }
   const r = d.resumos.get(campo.id)!;
   const { ubs } = d.dados.config;
   const dist = campo.latitude != null && campo.longitude != null ? haversine(ubs.lat, ubs.lng, campo.latitude, campo.longitude) : null;
-  const progs = d.dados.programacoes.filter((p) => p.campo_id === campo.id).sort((a, b) => b.data.localeCompare(a.data));
   const mapa = linkMapa(campo);
 
   return (
@@ -66,42 +65,8 @@ export function FichaCampo({ campoId, onFechar }: { campoId: string; onFechar: (
       <Dessecacao campo={campo} />
       <Colheita key={`${campo.colheita_inicio}|${campo.colheita_fim}`} campo={campo} />
 
-      <div className="secao">
-        <div className="card-head" style={{ marginBottom: 8 }}>
-          <h3>Técnicos programados</h3>
-          <button className="btn" onClick={() => ir('programacao', { data: somaDias(d.hoje, 1), campo: campo.id })}>Programar técnico</button>
-        </div>
-        {progs.length === 0 ? <div className="sub">Nenhuma programação para este campo.</div> : (
-          <div className="tbl-wrap" style={{ maxHeight: 420 }}>
-            <table>
-              <thead><tr><th>Data</th><th>Técnico</th><th>Atividade</th><th>Andamento</th><th>Obs.</th><th /></tr></thead>
-              <tbody>
-                {progs.slice(0, 30).map((p) => {
-                  const t = d.tecnicoPorId.get(p.tecnico_id);
-                  return (
-                    <Fragment key={p.id}>
-                      <tr className={p.status === 'cancelado' ? 'off' : ''}>
-                        <td className="nowrap">{br(p.data)} ({diaSemana(p.data)})</td>
-                        <td>{t ? <TecChip t={t} /> : '—'}</td>
-                        <td>{ATIVIDADES[p.atividade].curto}</td>
-                        <td><span className={'badge' + (p.status === 'realizado' ? ' feito' : '')}>{STATUS_PROG[p.status]}</span></td>
-                        <td>{p.observacoes ?? ''}</td>
-                        <td className="n nowrap">
-                          <button className="btn mini" onClick={() => setAlterando(alterando === p.id ? null : p.id)}>{alterando === p.id ? 'Pronto' : 'Alterar'}</button>{' '}
-                          <button className="btn mini perigo" aria-label={`Remover programação de ${br(p.data)}`} onClick={() => void d.excluirProgramacao(p.id)}>Remover</button>
-                        </td>
-                      </tr>
-                      {alterando === p.id && (
-                        <tr><td colSpan={6}><div className="item" style={{ margin: 0 }}><ControlesProg prog={p} /></div></td></tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <ColheitaReal key={'real' + campo.id} campo={campo} />
+      <HistoricoTecnicos key={'hist' + campo.id} campo={campo} />
 
       <div className="secao">
         {editando ? (
@@ -237,6 +202,289 @@ function Colheita({ campo }: { campo: Campo }) {
           {(campo.colheita_inicio || campo.colheita_fim) && <button className="btn" onClick={() => gravar('', '', 'Datas de colheita limpas.')}>Limpar</button>}
         </div>
       </div>
+    </div>
+  );
+}
+
+const LS_UNIDADE = 'ctc_unidade_volume';
+function unidadeSalva(): Unidade {
+  try {
+    const v = localStorage.getItem(LS_UNIDADE);
+    if (v === 'kg' || v === 'sc' || v === 't') return v;
+  } catch {
+    /* sem armazenamento */
+  }
+  return 'kg';
+}
+
+/** Volume colhido dia a dia (o que conversa com as outras abas) e, à parte, a produtividade do produtor (só informativa). */
+function ColheitaReal({ campo }: { campo: Campo }) {
+  const d = useDados();
+  const P = d.dados.config.params;
+  const r = d.reais.get(campo.id)!;
+  const [un, setUn] = useState<Unidade>(unidadeSalva);
+  const [edit, setEdit] = useState<string | null>(null);
+  const [data, setData] = useState(d.hoje);
+  const [colhido, setColhido] = useState('');
+  const [aprovado, setAprovado] = useState('');
+  const [area, setArea] = useState('');
+  const [obs, setObs] = useState('');
+  const [prod, setProd] = useState(campo.prod_real_sc_ha == null ? '' : String(campo.prod_real_sc_ha));
+
+  const trocarUn = (u: Unidade) => {
+    setUn(u);
+    try {
+      localStorage.setItem(LS_UNIDADE, u);
+    } catch {
+      /* sem armazenamento */
+    }
+  };
+  const vol = (kg: number) => (un === 'kg' ? n0(kg) : n1(deKg(kg, un, P.kg)));
+  const limpar = () => {
+    setEdit(null);
+    setColhido('');
+    setAprovado('');
+    setArea('');
+    setObs('');
+  };
+  const editar = (l: ColheitaDia) => {
+    const txt = (kg: number) => String(+deKg(kg, un, P.kg).toFixed(un === 'kg' ? 0 : 3));
+    setEdit(l.id);
+    setData(l.data);
+    setColhido(txt(l.colhido_kg));
+    setAprovado(l.aprovado_kg == null ? '' : txt(l.aprovado_kg));
+    setArea(l.area_ha == null ? '' : String(l.area_ha));
+    setObs(l.observacoes ?? '');
+  };
+
+  async function lancar() {
+    const vC = num(colhido), vA = num(aprovado), vHa = num(area);
+    if (!data) return d.avisar('Informe o dia da colheita.', 'erro');
+    if (vC == null || vC < 0) return d.avisar('Informe o volume colhido no dia.', 'erro');
+    if (vA != null && (vA < 0 || vA > vC)) return d.avisar('O volume aprovado não pode ser maior que o colhido.', 'erro');
+    if (vHa != null && vHa < 0) return d.avisar('Área colhida inválida.', 'erro');
+    const ok = await d.salvarColheitas([{
+      ...(edit ? { id: edit } : {}), campo_id: campo.id, data,
+      colhido_kg: paraKg(vC, un, P.kg), aprovado_kg: vA == null ? null : paraKg(vA, un, P.kg),
+      area_ha: vHa, observacoes: obs.trim() || null,
+    }], edit ? 'Lançamento corrigido.' : 'Volume colhido lançado.');
+    if (ok) limpar();
+  }
+  function gravarProd() {
+    const v = num(prod);
+    if (v != null && v < 0) return d.avisar('Produtividade inválida.', 'erro');
+    if (v === campo.prod_real_sc_ha) return;
+    void d.atualizarCampos([campo.id], { prod_real_sc_ha: v }, v == null ? 'Produtividade do produtor removida.' : 'Produtividade do produtor salva.');
+  }
+
+  const temVolume = r.lancamentos.length > 0;
+  const emAndamento = !campo.colheita_fim;
+  const areaExcede = r.areaColhida != null && r.areaCampo > 0 && r.areaColhida > r.areaCampo * 1.02;
+
+  return (
+    <div className="secao" data-testid="colheita-real">
+      <div className="card-head" style={{ marginBottom: 8 }}>
+        <div>
+          <h3>Volume colhido, aprovado e internalizado</h3>
+          <div className="sub">Lance o volume a cada dia de colheita. O volume aprovado e internalizado é o que alimenta as abas Metas e Internalização.</div>
+        </div>
+        <label className="un">
+          <span>Volumes em</span>
+          <select value={un} onChange={(e) => trocarUn(e.target.value as Unidade)} aria-label="Unidade dos volumes">
+            {(Object.keys(UNIDADES) as Unidade[]).map((u) => <option key={u} value={u}>{u === 'sc' ? `sacos de ${n0(P.kg)} kg` : UNIDADES[u]}</option>)}
+          </select>
+        </label>
+      </div>
+      {d.dados.faltaMigracao && <div className="caixa-info atencao">Para gravar volumes e produtividade, rode antes o arquivo <b>supabase/migrations/0002_colheita_real_e_metas.sql</b> no SQL Editor do Supabase.</div>}
+
+      <div className="reais">
+        <div className="real"><span>Colhido e entregue na UBS</span><b>{n0(r.colhidoSc)} sc</b><small>{n1(r.colhidoKg / 1000)} t · {r.dias} dia(s) lançado(s)</small></div>
+        <div className="real dest" data-testid="internalizado"><span>Aprovado e internalizado</span><b>{n0(r.internSc)} sc</b><small>{r.aprovadoDoEntreguePct != null ? `${n1(r.aprovadoDoEntreguePct)}% do entregue` : 'sem lançamentos'}{r.internScHa != null ? ` · ${n1(r.internScHa)} sc/ha` : ''}</small></div>
+        {emAndamento && campo.ativo && <div className="real"><span>Ainda a colher</span><b>{n1(r.areaRestante)} ha</b><small>≈ {n0(r.scRestante)} sc a internalizar{r.restanteEstimado ? ' · área estimada pelo volume' : ''}</small></div>}
+      </div>
+
+      <h3 style={{ marginTop: 14 }}>{edit ? 'Corrigir lançamento' : 'Lançar volume do dia'}</h3>
+      <div className="form">
+        <div className="campo">
+          <label htmlFor="crData">Dia</label>
+          <input id="crData" type="date" value={data} onChange={(e) => setData(e.target.value)} />
+        </div>
+        <div className="campo">
+          <label htmlFor="crColhido">Volume colhido ({un})</label>
+          <input id="crColhido" type="number" min={0} step="any" value={colhido} onChange={(e) => setColhido(e.target.value)} />
+          <div className="hint">O que saiu do campo e chegou à UBS no dia.</div>
+        </div>
+        <div className="campo">
+          <label htmlFor="crAprov">Aprovado e internalizado ({un})</label>
+          <input id="crAprov" type="number" min={0} step="any" placeholder="igual ao colhido" value={aprovado} onChange={(e) => setAprovado(e.target.value)} />
+          <div className="hint">Em branco = tudo aprovado. Preencha se parte foi para grão.</div>
+        </div>
+        <div className="campo">
+          <label htmlFor="crArea">Área colhida no dia (ha)</label>
+          <input id="crArea" type="number" min={0} step="0.1" placeholder="opcional" value={area} onChange={(e) => setArea(e.target.value)} />
+        </div>
+        <div className="campo">
+          <label htmlFor="crObs">Observação</label>
+          <input id="crObs" value={obs} onChange={(e) => setObs(e.target.value)} />
+        </div>
+        <div className="btns">
+          <button className="btn primary" onClick={() => void lancar()}>{edit ? 'Salvar correção' : 'Lançar volume'}</button>
+          {edit && <button className="btn" onClick={limpar}>Cancelar</button>}
+        </div>
+      </div>
+      {areaExcede && <div className="erro-txt">A soma das áreas colhidas ({n1(r.areaColhida!)} ha) passa da área do campo ({n1(r.areaCampo)} ha).</div>}
+
+      {temVolume && (
+        <div className="tbl-wrap" style={{ maxHeight: 260, marginTop: 12 }}>
+          <table>
+            <thead><tr><th>Dia</th><th className="n">Colhido ({un})</th><th className="n">Aprovado ({un})</th><th className="n">% aprovado</th><th className="n">Área (ha)</th><th className="n">sc/ha</th><th>Obs.</th><th /></tr></thead>
+            <tbody>
+              {[...r.lancamentos].reverse().map((l) => {
+                const ap = aprovadoKg(l);
+                return (
+                  <tr key={l.id} className={edit === l.id ? 'sel' : ''}>
+                    <td className="nowrap">{br(l.data)} ({diaSemana(l.data)})</td>
+                    <td className="n">{vol(l.colhido_kg)}</td>
+                    <td className="n">{vol(ap)}</td>
+                    <td className="n">{l.colhido_kg > 0 ? `${n0((ap / l.colhido_kg) * 100)}%` : '—'}</td>
+                    <td className="n">{l.area_ha != null ? n1(l.area_ha) : '—'}</td>
+                    <td className="n">{l.area_ha ? n1(ap / P.kg / l.area_ha) : '—'}</td>
+                    <td>{l.observacoes ?? ''}</td>
+                    <td className="n nowrap">
+                      <button className="btn mini" onClick={() => editar(l)}>Corrigir</button>{' '}
+                      <button className="btn mini perigo" aria-label={`Excluir lançamento de ${br(l.data)}`} onClick={() => confirm('Excluir este lançamento?') && void d.excluirColheita(l.id)}>Excluir</button>
+                    </td>
+                  </tr>
+                );
+              })}
+              <tr className="tot"><td>Total</td><td className="n">{vol(r.colhidoKg)}</td><td className="n">{vol(r.internKg)}</td>
+                <td className="n">{r.aprovadoDoEntreguePct != null ? `${n0(r.aprovadoDoEntreguePct)}%` : '—'}</td>
+                <td className="n">{r.areaColhida != null ? n1(r.areaColhida) : '—'}</td><td className="n">{r.internScHa != null ? n1(r.internScHa) : '—'}</td><td colSpan={2} /></tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="informativo" data-testid="prod-produtor">
+        <h3>Produtividade do produtor <span className="badge">só informativo</span></h3>
+        <div className="sub">Fica registrada apenas nesta ficha, para dar uma noção de quanto do potencial da área deixou de ir para a UBS. Não entra nas metas, na internalização nem nas outras telas.</div>
+        <div className="form" style={{ marginTop: 10 }}>
+          <div className="campo">
+            <label htmlFor="crProd">Produtividade do produtor (sc/ha)</label>
+            <input id="crProd" type="number" min={0} step="0.1" placeholder="informada pelo produtor" value={prod}
+              onChange={(e) => setProd(e.target.value)} onBlur={gravarProd} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+            <div className="hint">Produtividade geral da área, em sacos de {n0(P.kg)} kg por hectare.</div>
+          </div>
+        </div>
+        {r.potencialSc != null && r.prodHa != null ? (
+          <div className="reais" style={{ marginTop: 10 }}>
+            <div className="real"><span>Potencial da área</span><b>{n0(r.potencialSc)} sc</b><small>{n1(r.prodHa)} sc/ha × {n1(r.areaBase)} ha{r.parcial ? ' já colhidos' : ''}</small></div>
+            <div className="real" data-testid="nao-enviado"><span>Deixou de ir para a UBS</span><b>{r.naoEnviadoSc != null ? `${n0(r.naoEnviadoSc)} sc` : '—'}</b>
+              <small>{r.naoEnviadoSc != null && r.potencialSc > 0 ? `${n1((r.naoEnviadoSc / r.potencialSc) * 100)}% do potencial · potencial − entregue` : 'aparece depois do 1º lançamento de volume'}</small></div>
+            <div className="real" data-testid="aprov-semente"><span>Aproveitamento para semente</span><b>{r.aprovPct != null ? `${n1(r.aprovPct)}%` : '—'}</b><small>aprovado e internalizado ÷ potencial</small></div>
+          </div>
+        ) : (
+          <div className="sub" style={{ marginTop: 8 }}>Informe a produtividade que o produtor passar para ver o potencial da área e quanto dele deixou de ir para a UBS.</div>
+        )}
+        {temVolume && emAndamento && !r.parcial && r.potencialSc != null && <div className="sub" style={{ marginTop: 6 }}>Colheita em andamento: a comparação está sendo feita contra o campo inteiro. Informe a área colhida nos lançamentos para ver o parcial, ou finalize a colheita.</div>}
+      </div>
+    </div>
+  );
+}
+
+interface ResumoTec {
+  tecnico: Tecnico | undefined;
+  id: string;
+  dias: Record<Atividade, number>;
+  primeiro: string;
+  ultimo: string;
+}
+
+/** Quem foi escalado para o campo ao longo do tempo (colheita e pré-colheita), sem limite de datas. */
+function HistoricoTecnicos({ campo }: { campo: Campo }) {
+  const d = useDados();
+  const [alterando, setAlterando] = useState<string | null>(null);
+  const todos = d.dados.programacoes.filter((p) => p.campo_id === campo.id).sort((a, b) => b.data.localeCompare(a.data));
+  const validos = todos.filter((p) => p.status !== 'cancelado');
+  const futuros = validos.filter((p) => p.data >= d.hoje);
+
+  const porTec = new Map<string, ResumoTec>();
+  for (const p of validos) {
+    let x = porTec.get(p.tecnico_id);
+    if (!x) porTec.set(p.tecnico_id, (x = { tecnico: d.tecnicoPorId.get(p.tecnico_id), id: p.tecnico_id, dias: { colheita_pre: 0, coleta_pre: 0 }, primeiro: p.data, ultimo: p.data }));
+    x.dias[p.atividade]++;
+    if (p.data < x.primeiro) x.primeiro = p.data;
+    if (p.data > x.ultimo) x.ultimo = p.data;
+  }
+  const resumo = [...porTec.values()].sort((a, b) => a.primeiro.localeCompare(b.primeiro));
+  const quando = (p: Programacao) => (p.data > d.hoje ? 'futuro' : p.data === d.hoje ? 'hoje' : 'passado');
+
+  function exportar() {
+    const l: (string | number | null)[][] = [['Campo', 'Data', 'Dia', 'Técnico', 'Atividade', 'Andamento', 'Observação']];
+    for (const p of [...todos].reverse()) {
+      l.push([campo.num_campo, br(p.data), diaSemana(p.data), d.tecnicoPorId.get(p.tecnico_id)?.nome ?? '(excluído)', ATIVIDADES[p.atividade].curto, STATUS_PROG[p.status], p.observacoes]);
+    }
+    baixar(`historico_tecnicos_${campo.num_campo}.csv`, csv(l), 'text/csv;charset=utf-8');
+  }
+
+  return (
+    <div className="secao" data-testid="historico-tecnicos">
+      <div className="card-head" style={{ marginBottom: 8 }}>
+        <div>
+          <h3>Histórico de técnicos no campo</h3>
+          <div className="sub">
+            {validos.length
+              ? `${validos.length} escala(s) de ${resumo.length} técnico(s), de ${br(validos[validos.length - 1].data)} a ${br(validos[0].data)}${futuros.length ? ` · ${futuros.length} de hoje em diante` : ''}.`
+              : todos.length ? 'Só há escalas canceladas.' : 'Nenhuma programação para este campo.'}
+          </div>
+        </div>
+        <div className="btns">
+          {todos.length > 0 && <button className="btn" onClick={exportar}>Exportar CSV</button>}
+          <button className="btn" onClick={() => ir('programacao', { data: somaDias(d.hoje, 1), campo: campo.id })}>Programar técnico</button>
+        </div>
+      </div>
+      {resumo.length > 0 && (
+        <div className="hist-tecs">
+          {resumo.map((x) => (
+            <div className="hist-tec" key={x.id} style={{ borderLeftColor: x.tecnico?.cor }}>
+              <b>{x.tecnico?.nome ?? 'Técnico excluído'}</b>
+              <span>{[x.dias.colheita_pre ? `${x.dias.colheita_pre}× colheita` : null, x.dias.coleta_pre ? `${x.dias.coleta_pre}× pré-colheita` : null].filter(Boolean).join(' · ')}</span>
+              <small>{x.primeiro === x.ultimo ? br(x.primeiro) : `${br(x.primeiro)} a ${br(x.ultimo)}`}</small>
+            </div>
+          ))}
+        </div>
+      )}
+      {todos.length > 0 && (
+        <div className="tbl-wrap" style={{ maxHeight: 420, marginTop: 8 }}>
+          <table>
+            <thead><tr><th>Data</th><th>Técnico</th><th>Atividade</th><th>Andamento</th><th>Obs.</th><th /></tr></thead>
+            <tbody>
+              {todos.map((p) => {
+                const t = d.tecnicoPorId.get(p.tecnico_id);
+                return (
+                  <Fragment key={p.id}>
+                    <tr className={p.status === 'cancelado' ? 'off' : ''} data-quando={quando(p)}>
+                      <td className="nowrap">{br(p.data)} ({diaSemana(p.data)}){p.data === d.hoje && <span className="badge man" style={{ marginLeft: 6 }}>hoje</span>}</td>
+                      <td>{t ? <TecChip t={t} /> : '—'}</td>
+                      <td>{ATIVIDADES[p.atividade].curto}</td>
+                      <td><span className={'badge' + (p.status === 'realizado' ? ' feito' : '')}>{STATUS_PROG[p.status]}</span></td>
+                      <td>{p.observacoes ?? ''}</td>
+                      <td className="n nowrap">
+                        <button className="btn mini" onClick={() => setAlterando(alterando === p.id ? null : p.id)}>{alterando === p.id ? 'Pronto' : 'Alterar'}</button>{' '}
+                        <button className="btn mini perigo" aria-label={`Remover programação de ${br(p.data)}`}
+                          onClick={() => (p.data >= d.hoje || confirm(`Remover do histórico a escala de ${br(p.data)}? Para manter o registro, prefira marcar como cancelada.`)) && void d.excluirProgramacao(p.id)}>Remover</button>
+                      </td>
+                    </tr>
+                    {alterando === p.id && (
+                      <tr><td colSpan={6}><div className="item" style={{ margin: 0 }}><ControlesProg prog={p} /></div></td></tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,9 @@
 // Dados FICTÍCIOS para o modo demonstração. Nenhum nome, fazenda ou número daqui é real.
 import { dataProvavel, hoje as hojeIso, somaDias } from './dates';
-import { CONFIG_PADRAO, CONTROLE_PADRAO, type Campo, type Dados, type Dessecacao, type Programacao, type Tecnico } from './types';
+import {
+  CONFIG_PADRAO, CONTROLE_PADRAO,
+  type Campo, type ColheitaDia, type Dados, type Dessecacao, type MetaCultivar, type Programacao, type Tecnico,
+} from './types';
 
 function prng(semente: number): () => number {
   let a = semente >>> 0;
@@ -40,6 +43,7 @@ export function dadosDemo(hoje: string = hojeIso()): Dados {
   const campos: Campo[] = [];
   const dessecacoes: Dessecacao[] = [];
   const programacoes: Programacao[] = [];
+  const colheitas: ColheitaDia[] = [];
   const N = 36;
   for (let i = 0; i < N; i++) {
     const [produto, obtentor, biotec, ciclo] = CULTIVARES[i % CULTIVARES.length];
@@ -98,15 +102,43 @@ export function dadosDemo(hoje: string = hojeIso()): Dados {
         atividade, status: 'planejado', observacoes,
       });
 
+    // volume do dia: `ha` hectares rendendo `scHa` sacos, com `pctAprov`% aprovado na UBS
+    const volume = (data: string, ha: number, scHa: number, pctAprov: number) => {
+      const colhido = Math.round(ha * scHa * 60);
+      colheitas.push({
+        id: id('col', colheitas.length + 1), campo_id: c.id, data, colhido_kg: colhido,
+        aprovado_kg: pctAprov >= 100 ? null : Math.round((colhido * pctAprov) / 100), area_ha: Math.round(ha * 10) / 10, observacoes: null,
+      });
+    };
+
     if (i < 3) {
-      // já colhidos
+      // já colhidos: 4 dias de colheita, com o técnico que acompanhou cada dia e o volume lançado
       dess(somaDias(hoje, -16 + i), 6, area);
       c.colheita_inicio = somaDias(hoje, -10 + i);
       c.colheita_fim = somaDias(hoje, -7 + i);
+      c.prod_real_sc_ha = 62 + i * 3;
+      programacoes.push({
+        id: id('prog', programacoes.length + 1), data: somaDias(c.colheita_inicio, -1), tecnico_id: tecnicos[(i + 2) % tecnicos.length].id,
+        campo_id: c.id, atividade: 'coleta_pre', status: 'realizado', observacoes: null,
+      });
+      for (let k = 0; k < 4; k++) {
+        programacoes.push({
+          id: id('prog', programacoes.length + 1), data: somaDias(c.colheita_inicio, k), tecnico_id: tecnicos[(i + (k > 1 ? 1 : 0)) % tecnicos.length].id,
+          campo_id: c.id, atividade: 'colheita_pre', status: 'realizado', observacoes: null,
+        });
+        volume(somaDias(c.colheita_inicio, k), area / 4, 44 + i * 2 + k, k === 3 ? 90 : 100);
+      }
     } else if (i < 7) {
       // em colheita
       dess(somaDias(hoje, -8 + (i - 3)), 5, area);
       c.colheita_inicio = somaDias(hoje, -2 + (i % 2));
+      for (let dia = c.colheita_inicio; dia < hoje; dia = somaDias(dia, 1)) {
+        programacoes.push({
+          id: id('prog', programacoes.length + 1), data: dia, tecnico_id: tecnicos[i % tecnicos.length].id,
+          campo_id: c.id, atividade: 'colheita_pre', status: 'realizado', observacoes: null,
+        });
+        volume(dia, Math.min(120, area / 3), 46, 100);
+      }
       prog(hoje, i, 'colheita_pre');
       if (i < 5) prog(somaDias(hoje, 1), i, 'colheita_pre', 'Continuar no mesmo talhão');
     } else if (i < 9) {
@@ -129,9 +161,14 @@ export function dadosDemo(hoje: string = hojeIso()): Dados {
     }
     campos.push(c);
   }
-  return { tecnicos, campos, dessecacoes, programacoes, config: JSON.parse(JSON.stringify(CONFIG_PADRAO)) };
+  // metas fictícias: a 1ª já tem bastante volume, a 3ª pede mais do que há para colher (gera o alerta)
+  const metas: MetaCultivar[] = [3200, 2600, 4800, 2400, 2900].map((bb, i) => ({
+    id: id('meta', i + 1), cultivar: CULTIVARES[i][0], meta_sc200: bb * CONFIG_PADRAO.metas.sc200PorBB, pms_g: i === 1 ? 172 : null,
+    rend_ubs: null, meta_intern_sc: null, bb_ubs: i < 3 ? 120 + i * 40 : null, bb_tolling: i === 0 ? 30 : null, observacoes: null,
+  }));
+  return { tecnicos, campos, dessecacoes, programacoes, colheitas, metas, config: JSON.parse(JSON.stringify(CONFIG_PADRAO)) };
 }
 
 export function dadosVazios(): Dados {
-  return { tecnicos: [], campos: [], dessecacoes: [], programacoes: [], config: JSON.parse(JSON.stringify(CONFIG_PADRAO)) };
+  return { tecnicos: [], campos: [], dessecacoes: [], programacoes: [], colheitas: [], metas: [], config: JSON.parse(JSON.stringify(CONFIG_PADRAO)) };
 }
