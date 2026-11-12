@@ -53,17 +53,19 @@ vez de excluí-lo (excluir o técnico apaga as escalas dele).
 ### Metas por cultivar
 
 As cultivares aparecem sozinhas, a partir da coluna *Produto* dos campos. Para cada uma, informe os **big bags
-planejados** (ou, em “Detalhes”, os sacos de 200 mil sementes, o PMS, o rendimento e os big bags já prontos):
+planejados** e, se ela fugir do padrão, o **PMS** e o **aproveitamento na UBS** próprios dela, direto na tabela
+(em “Detalhes” ficam os sacos de 200 mil sementes, a meta manual e os big bags já prontos):
 
 ```
 sacos de 200 mil sementes = big bags × 25
 semente pronta (sc 60 kg)  = sacos de 200 mil × (PMS × 0,2 kg) ÷ 60
-meta de internalização     = semente pronta ÷ rendimento do beneficiamento (75%)
+meta de internalização     = semente pronta ÷ aproveitamento na UBS (75%)
 GAP                        = total internalizado − meta
 ```
 
-Os três parâmetros (25 sacos por big bag, PMS de 180 g e rendimento de 75%) são editáveis na própria aba, e PMS e
-rendimento podem ser ajustados por cultivar. Também dá para digitar a meta de internalização direto, à mão.
+Os três parâmetros padrão (25 sacos por big bag, PMS de 180 g e aproveitamento de 75%) são editáveis na própria aba.
+PMS e aproveitamento em branco na linha da cultivar usam o padrão; preenchidos, valem só para ela. Também dá para
+digitar a meta de internalização direto, à mão.
 O **total internalizado** vem dos volumes aprovados lançados nas fichas dos campos.
 
 O **alerta** aparece quando o que falta internalizar é maior que o volume previsto nos campos ainda por colher daquela

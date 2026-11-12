@@ -48,10 +48,23 @@ export default function Metas() {
     if (bb == null && !l.meta) return;
     void d.salvarMeta({ ...baseMeta(l), meta_sc200: bb == null ? null : bb * M.sc200PorBB }, `Meta de ${l.cultivar} salva.`);
   }
+  /** PMS e aproveitamento na UBS próprios da cultivar; em branco volta a valer o padrão da aba */
+  function gravarPms(l: LinhaMeta, texto: string) {
+    const v = num(texto);
+    if (v != null && v <= 0) return d.avisar('Informe um PMS maior que zero.', 'erro');
+    if (v == null && !l.meta) return;
+    void d.salvarMeta({ ...baseMeta(l), pms_g: v }, v == null ? `${l.cultivar}: PMS voltou ao padrão (${n0(M.pms)} g).` : `PMS de ${l.cultivar} salvo.`);
+  }
+  function gravarAprov(l: LinhaMeta, texto: string) {
+    const v = num(texto);
+    if (v != null && (v <= 0 || v > 100)) return d.avisar('O aproveitamento deve ficar entre 1 e 100%.', 'erro');
+    if (v == null && !l.meta) return;
+    void d.salvarMeta({ ...baseMeta(l), rend_ubs: v }, v == null ? `${l.cultivar}: aproveitamento voltou ao padrão (${n0(M.rendUbs)}%).` : `Aproveitamento de ${l.cultivar} salvo.`);
+  }
 
   function exportar() {
     const l: (string | number | null)[][] = [[
-      'Cultivar', 'Big bags planejados', 'Sacos de 200 mil', 'Semente pronta (sc)', 'PMS (g)', 'Rendimento UBS (%)', 'Meta internalização (sc)',
+      'Cultivar', 'Big bags planejados', 'Sacos de 200 mil', 'Semente pronta (sc)', 'PMS (g)', 'Aproveitamento UBS (%)', 'Meta internalização (sc)',
       'Internalizado (sc)', 'GAP (sc)', '% atingimento', 'Falta internalizar (sc)', 'Campos a colher', 'Área a colher (ha)', 'Previsto a colher (sc)',
       'Saldo (sc)', 'Área necessária (ha)', 'Big bags prontos', 'Big bags projetados', 'Situação',
     ]];
@@ -147,14 +160,14 @@ export default function Metas() {
             <div className="card-head">
               <div>
                 <h2>Metas e disponibilidade por cultivar</h2>
-                <div className="sub">Digite os <b>big bags planejados</b> na célula amarela (ou clique em “Detalhes” para PMS, rendimento, meta manual e big bags prontos). O sistema calcula a matéria-prima bruta a internalizar e compara com o que ainda há para colher.</div>
+                <div className="sub">Digite nas células amarelas os <b>big bags planejados</b> e, se a cultivar fugir do padrão, o <b>PMS</b> e o <b>aproveitamento na UBS</b> dela (em branco = usa o padrão do painel abaixo). Em “Detalhes” ficam a meta manual e os big bags prontos. O sistema calcula a matéria-prima bruta a internalizar e compara com o que ainda há para colher.</div>
               </div>
               <div className="btns"><button className="btn" onClick={() => setEdit('nova')}>+ Cultivar sem campo</button><button className="btn" onClick={exportar}>Exportar CSV</button></div>
             </div>
             <div className="tbl-wrap">
               <table data-testid="tabela-metas" className="quebra">
                 <thead><tr>
-                  <th>Cultivar</th><th className="n">Big bags planejados</th><th className="n">Meta de intern. (sc)</th><th className="n">Internalizado (sc)</th><th className="n">Falta (sc)</th>
+                  <th>Cultivar</th><th className="n">Big bags planejados</th><th className="n">PMS (g)</th><th className="n">Aprov. UBS (%)</th><th className="n">Meta de intern. (sc)</th><th className="n">Internalizado (sc)</th><th className="n">Falta (sc)</th>
                   <th className="n">Ainda a colher (sc)</th><th className="n">Saldo (sc)</th><th className="n">Cobertura</th>
                   <th className="n">Big bags prontos</th><th className="n">Big bags projetados</th><th>Situação</th><th />
                 </tr></thead>
@@ -169,6 +182,8 @@ export default function Metas() {
                             ? <span className="muted" title="Deduzido da meta de internalização digitada">≈ {n0(l.metaBB ?? 0)}</span>
                             : <CelulaEd tipo="number" valor={l.metaBB == null ? null : +l.metaBB.toFixed(2)} onGravar={(v) => gravarBB(l, v)} rotulo={`Big bags planejados ${l.cultivar}`} />}
                         </td>
+                        <td className="n"><CelulaEd tipo="number" valor={l.meta?.pms_g ?? null} placeholder={String(M.pms)} onGravar={(v) => gravarPms(l, v)} rotulo={`PMS ${l.cultivar}`} /></td>
+                        <td className="n"><CelulaEd tipo="number" valor={l.meta?.rend_ubs ?? null} placeholder={String(M.rendUbs)} onGravar={(v) => gravarAprov(l, v)} rotulo={`Aproveitamento UBS ${l.cultivar}`} /></td>
                         <td className="n">{l.metaIntern != null ? n0(l.metaIntern) : '—'}{l.metaManual && <span className="badge man" style={{ marginLeft: 6 }} title="Meta de internalização digitada à mão">manual</span>}</td>
                         <td className="n">{n0(l.intern)}{l.pct != null && <div className="muted">{n1(l.pct)}%</div>}</td>
                         <td className="n">{l.metaIntern != null ? n0(l.falta) : '—'}</td>
@@ -185,7 +200,7 @@ export default function Metas() {
                     );
                   })}
                   <tr className="tot">
-                    <td>Total</td><td className="n">{n0(R.metaBB)}</td><td className="n">{n0(R.metaIntern)}</td><td className="n">{n0(R.intern)}</td>
+                    <td>Total</td><td className="n">{n0(R.metaBB)}</td><td colSpan={2} /><td className="n">{n0(R.metaIntern)}</td><td className="n">{n0(R.intern)}</td>
                     <td className="n">{n0(R.linhas.reduce((s, l) => s + l.falta, 0))}</td><td className="n">{n0(R.scDisp)}<div className="muted">{n0(R.areaDisp)} ha</div></td>
                     <td colSpan={2} /><td className="n">{R.bbProntos > 0 ? n0(R.bbProntos) : '—'}</td><td colSpan={3} />
                   </tr>
@@ -198,13 +213,13 @@ export default function Metas() {
 
       <section className="card panel">
         <div className="card-head">
-          <div><h2>Parâmetros da conversão (editável)</h2><div className="sub">Valem para todas as cultivares; PMS e rendimento podem ser ajustados por cultivar em “Detalhes”.</div></div>
+          <div><h2>Parâmetros padrão da conversão (editável)</h2><div className="sub">Valem para as cultivares que não têm PMS ou aproveitamento próprios na tabela acima.</div></div>
           <button className="btn" onClick={() => setM({ ...CONFIG_PADRAO.metas })}>Restaurar padrão</button>
         </div>
         <div className="params">
           <div className="param"><label htmlFor="mBB">Sacos de 200 mil sementes por big bag</label><input id="mBB" min={1} step={1} {...numM('sc200PorBB', 1)} /><div className="hint">Padrão: 25 (big bag de 5 milhões de sementes)</div></div>
-          <div className="param"><label htmlFor="mPms">Peso de mil sementes — PMS (g)</label><input id="mPms" min={1} step={1} {...numM('pms', 1)} /><div className="hint">Padrão: 180 g → saco de 200 mil = {n1(kg1)} kg</div></div>
-          <div className="param"><label htmlFor="mRend">Rendimento do beneficiamento na UBS (%)</label><input id="mRend" min={1} max={100} step={1} {...numM('rendUbs', 1, 100)} /><div className="hint">Padrão: 75% da matéria-prima vira semente pronta</div></div>
+          <div className="param"><label htmlFor="mPms">Peso de mil sementes padrão — PMS (g)</label><input id="mPms" min={1} step={1} {...numM('pms', 1)} /><div className="hint">Padrão: 180 g → saco de 200 mil = {n1(kg1)} kg</div></div>
+          <div className="param"><label htmlFor="mRend">Aproveitamento padrão na UBS (%)</label><input id="mRend" min={1} max={100} step={1} {...numM('rendUbs', 1, 100)} /><div className="hint">Padrão: 75% da matéria-prima vira semente pronta</div></div>
         </div>
         <div className="formula">
           Exemplo com os parâmetros atuais: <b>100 big bags</b> = {n0(100 * M.sc200PorBB)} sacos de 200 mil = <b>{n0(100 * M.sc200PorBB * scPorSc200(M.pms, P.kg))} sc</b> de semente pronta →
@@ -215,11 +230,11 @@ export default function Metas() {
       <section className="card note">
         <h2>Como esta aba é calculada</h2>
         <ul>
-          <li><b>Meta de internalização</b> = big bags × sacos de 200 mil por big bag × peso do saco de 200 mil (PMS × 0,2 kg) ÷ {n0(P.kg)} kg ÷ rendimento do beneficiamento. Uma meta digitada à mão em “Detalhes” vale no lugar do cálculo.</li>
+          <li><b>Meta de internalização</b> = big bags × sacos de 200 mil por big bag × peso do saco de 200 mil (PMS × 0,2 kg) ÷ {n0(P.kg)} kg ÷ aproveitamento na UBS. O PMS e o aproveitamento são os da cultivar quando preenchidos na tabela; senão, os padrões do painel. Uma meta digitada à mão em “Detalhes” vale no lugar do cálculo.</li>
           <li><b>Total internalizado</b> = soma do volume <i>aprovado e internalizado</i> lançado na ficha de cada campo da cultivar. <b>GAP</b> = internalizado − meta. <b>% atingimento</b> = internalizado ÷ meta.</li>
           <li><b>Ainda a colher</b> = área dos campos ativos ainda não finalizados, descontada a área colhida já lançada (sem área lançada, o sistema estima pelo volume entregue). Em sacos, é essa área × sc/ha × aproveitamento, com os valores da aba Internalização ({n0(P.scHa)} sc/ha e {n0(P.aprov)}%, ou o ajuste feito por campo lá). A produtividade informada pelo produtor é só informativa e não entra nesta conta.</li>
           <li><b>Alerta</b>: aparece quando o que falta para a meta é maior que o volume ainda a colher. <b>Saldo</b> = ainda a colher − falta. <b>Cobertura</b> = (internalizado + ainda a colher) ÷ meta.</li>
-          <li><b>Big bags projetados</b> = (internalizado + ainda a colher) × rendimento ÷ peso de um big bag.</li>
+          <li><b>Big bags projetados</b> = (internalizado + ainda a colher) × aproveitamento na UBS ÷ peso de um big bag (com o PMS da cultivar).</li>
         </ul>
       </section>
 
@@ -274,7 +289,7 @@ function FormMeta({ linha, onFim }: { linha: LinhaMeta | null; onFim: () => void
     const cultivar = f.cultivar.trim();
     if (!cultivar) return d.avisar('Informe a cultivar.', 'erro');
     if (num(f.pms) != null && pms <= 0) return d.avisar('PMS inválido.', 'erro');
-    if (num(f.rend) != null && (rend <= 0 || rend > 100)) return d.avisar('O rendimento deve ficar entre 1 e 100%.', 'erro');
+    if (num(f.rend) != null && (rend <= 0 || rend > 100)) return d.avisar('O aproveitamento deve ficar entre 1 e 100%.', 'erro');
     if ([sc200, manual, num(f.bbUbs), num(f.bbTol)].some((v) => v != null && v < 0)) return d.avisar('Os valores não podem ser negativos.', 'erro');
     setSalvando(true);
     const r = await d.salvarMeta({
@@ -309,7 +324,7 @@ function FormMeta({ linha, onFim }: { linha: LinhaMeta | null; onFim: () => void
           <div className="hint">Saco de 200 mil = {n1(pms * 0.2)} kg</div>
         </div>
         <div className="campo">
-          <label htmlFor="fmRend">Rendimento do beneficiamento (%)</label>
+          <label htmlFor="fmRend">Aproveitamento na UBS desta cultivar (%)</label>
           <input id="fmRend" type="number" min={1} max={100} step="any" placeholder={`padrão: ${n0(M.rendUbs)}`} value={f.rend} onChange={(e) => set('rend', e.target.value)} />
         </div>
         <div className="campo">
@@ -333,7 +348,7 @@ function FormMeta({ linha, onFim }: { linha: LinhaMeta | null; onFim: () => void
       <div className="resultado" style={{ marginTop: 12 }} data-testid="conta-meta">
         {sc200 != null && <>{n0(sc200 / M.sc200PorBB)} big bags = {n0(sc200)} sacos de 200 mil = {n0(sc200 * fator)} sc de semente pronta. </>}
         Meta de internalização: <b>{meta != null ? `${n0(meta)} sc` : '—'}</b>
-        {meta != null && <span className="sub"> · {n1((meta * P.kg) / 1000)} t de matéria-prima bruta{manual != null ? ' (digitada à mão)' : ` · rendimento ${n0(rend)}%`}</span>}
+        {meta != null && <span className="sub"> · {n1((meta * P.kg) / 1000)} t de matéria-prima bruta{manual != null ? ' (digitada à mão)' : ` · PMS ${n0(pms)} g · aproveitamento ${n0(rend)}%`}</span>}
       </div>
       {linha && linha.metaIntern != null && linha.metaIntern > 0 && (
         <div className="info" style={{ marginTop: 12 }}>

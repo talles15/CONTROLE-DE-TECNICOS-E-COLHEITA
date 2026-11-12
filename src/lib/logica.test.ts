@@ -327,7 +327,7 @@ describe('metas por cultivar', () => {
     expect([l.metaBB, l.metaSc200, l.metaSc60]).toEqual([100, 2500, 1500]);
     expect(l.metaIntern).toBeCloseTo(2000, 9);
   });
-  it('PMS e rendimento por cultivar valem no lugar do padrão; meta manual vale no lugar do cálculo', () => {
+  it('PMS e aproveitamento na UBS por cultivar valem no lugar do padrão; meta manual vale no lugar do cálculo', () => {
     expect(resumo([campo()], [], [meta({ pms_g: 150, rend_ubs: 80 })]).linhas[0].metaIntern).toBeCloseTo((2500 * 30) / 60 / 0.8, 9);
     const [l] = resumo([campo()], [], [meta({ meta_intern_sc: 3000 })]).linhas;
     expect(l.metaIntern).toBe(3000);
