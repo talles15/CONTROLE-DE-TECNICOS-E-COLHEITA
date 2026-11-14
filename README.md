@@ -2,7 +2,8 @@
 
 Sistema web para acompanhar a colheita dos campos cooperantes: dessecação, colheita provável, aviso de pré-colheita,
 programação diária dos técnicos (com mensagem pronta para o WhatsApp), volume colhido real e aproveitamento para semente,
-estimativa de internalização, metas de produção por cultivar e mapa dos campos em relação à UBS.
+descarte de campos com motivo, estimativa de internalização, metas de produção por cultivar, ranking de cooperados e
+mapa dos campos em relação à UBS.
 
 - **Tela:** hospedada na Vercel.
 - **Dados e login:** Supabase (banco PostgreSQL na nuvem).
@@ -13,10 +14,11 @@ estimativa de internalização, metas de produção por cultivar e mapa dos camp
 | Aba | Para que serve |
 |---|---|
 | **Calendário** | Visão geral do mês: campos **dessecados**, com **colheita programada** e **em colheita**. No topo, os alertas: véspera de colheita (mandar alguém fazer a pré-colheita), colheita provável hoje, atrasados e próximos 7 dias. |
-| **Campos** | Lista com busca e filtros. Clicando no campo abre a ficha: registrar dessecação (data, área opcional e dias até a colheita), iniciar/finalizar colheita, **lançar o volume colhido dia a dia**, informar a **produtividade do produtor**, ver o **histórico de técnicos** escalados e editar dados. |
+| **Campos** | Lista com busca e filtros. Clicando no campo abre a ficha: registrar dessecação (data, área opcional e dias até a colheita), iniciar/finalizar colheita, **lançar o volume colhido dia a dia**, informar a **produtividade do produtor**, **registrar descarte** (direto ou parcial, com motivo), ver o **histórico de técnicos** escalados e editar dados. |
 | **Programação** | Planejamento do dia (padrão: amanhã). Distribui campos entre os técnicos, informando se vai **colher e retirar pré-colheita** ou **passar pegando pré-colheita**. Dá para escolher **vários campos de uma vez para o mesmo técnico** (roteiro de pré-colheita). Gera o texto para o WhatsApp (copiar, baixar `.txt` ou abrir direto na conversa do técnico). |
 | **Internalização** | Estimativa de sacos por dia, acumulado e por semana, com painel de parâmetros (ha/dia, sc/ha, aproveitamento…), filtros e ajustes por campo. Mostra também o internalizado real já lançado. |
 | **Metas** | Por cultivar: big bags de semente pronta planejados → meta de internalização de matéria-prima bruta, total internalizado, GAP e % de atingimento, com **alerta quando a demanda é maior que a área/volume ainda disponível para colher**. |
+| **Ranking** | Cooperados ordenados pelo volume aprovado e internalizado, com o aproveitamento de cada um (internalizado ÷ potencial). Clicando no cooperado aparece campo a campo o que ele tinha de potencial e o que entregou. Traz os descartes por motivo e exporta o **relatório de colheita e descartes**. |
 | **Mapa** | Posição dos campos, anéis de 10, 20, 50, 100, 200 e 300 km a partir da UBS e a tabela de **volume por cultivar em cada faixa de distância**. |
 | **Técnicos** | Cadastro dos técnicos de campo (nome, telefone/WhatsApp, cidade base, função, cor, observações). |
 | **Importar campos** | Sobe a planilha de planting (`.xlsx`, aba **Base Planting**) de uma vez, com prévia antes de gravar. |
@@ -72,6 +74,34 @@ O **alerta** aparece quando o que falta internalizar é maior que o volume previ
 cultivar (área restante × sc/ha × aproveitamento da aba Internalização). A aba mostra o déficit em sacos, a área que seria necessária e
 quantos big bags a projeção alcança.
 
+### Descarte de campos
+
+Na ficha do campo, seção **Encerramento e descarte** (também acessível pelo botão **Descartar campo** de cada campo na
+aba Programação):
+
+- **Descartado sem colher (descarte direto)**: o campo sai inteiro da conta e passa para a situação *Descartado*.
+- **Descarte parcial**: colheu uma parte e o resto ficou para trás. A colheita é finalizada na data do descarte.
+- **Motivo** (obrigatório): Qualidade, Clima, Negativa de colheita ou Moega indisponível. Há também um campo de
+  **observações do encerramento**, que pode ser preenchido mesmo sem descarte.
+- Ao registrar o descarte, as escalas futuras do campo são canceladas (continuam no histórico).
+
+O volume descartado é **abatido do que ainda há para colher** (aba Metas) e da projeção da aba Internalização:
+
+- descarte direto: área do campo × sc/ha × aproveitamento de campo;
+- descarte parcial: a área que sobrou (área do campo − área colhida lançada) ou, quando a área colhida não foi lançada,
+  o que falta projetado pelo volume internalizado (internalização prevista do campo − internalizado).
+
+### Ranking de cooperados
+
+- **Posição**: pelo volume aprovado e internalizado, somando os campos do cooperado (coluna *Cliente* da planilha).
+- **Potencial** = área × sc/ha da aba Internalização (ou o ajuste do campo). Entram só os campos já colhidos, em
+  colheita ou descartados; campo ainda por colher não pesa contra o cooperado.
+- **Aproveitamento** = aprovado e internalizado ÷ potencial. Assim dá para ver quem entregou muito mas pouco em relação
+  ao que tinha, e quem tinha pouca área e entregou tudo. Campo descartado sem colher conta com o potencial inteiro.
+- A produtividade informada pelo produtor não entra no ranking: ela continua só informativa, na ficha.
+- **Relatório de colheita e descartes (CSV)**: uma linha por campo com início e fim da colheita, se foi descartado
+  direto, tipo e motivo do descarte, data, observações, potencial, entregue, internalizado e volume descartado.
+
 ## Como colocar no ar
 
 Você precisa de duas contas gratuitas: [supabase.com](https://supabase.com) e [vercel.com](https://vercel.com).
@@ -87,7 +117,8 @@ Os nomes dos menus podem mudar um pouco conforme a versão dos painéis.
    Na primeira execução, os usuários que você acabou de criar já ficam liberados para usar o sistema.
    Depois faça o mesmo com
    [`supabase/migrations/0002_colheita_real_e_metas.sql`](supabase/migrations/0002_colheita_real_e_metas.sql)
-   (volume colhido, produtividade do produtor e metas por cultivar).
+   (volume colhido, produtividade do produtor e metas por cultivar) e com
+   [`supabase/migrations/0003_descarte.sql`](supabase/migrations/0003_descarte.sql) (descarte de campos).
 4. **Desligue o cadastro público:** *Authentication → Sign In / Providers* → desligue **Allow new users to sign up** e salve.
    (Em algumas versões do painel a opção fica dentro do provedor **Email**.)
 5. Copie as duas informações de conexão no botão **Connect** (topo da tela) ou em *Settings → API Keys*:
@@ -95,9 +126,10 @@ Os nomes dos menus podem mudar um pouco conforme a versão dos painéis.
    - **Publishable key** (começa com `sb_publishable_…`). Em projetos antigos ela se chama **anon / public** e fica na
      aba *Legacy API Keys*. **Nunca** use a chave *secret* / `service_role` aqui.
 
-**Já usa o sistema e está atualizando?** Rode só o arquivo `0002_colheita_real_e_metas.sql` no SQL Editor. Ele não
-apaga nada e pode ser executado mais de uma vez. Enquanto isso não for feito, o sistema continua funcionando e mostra
-um aviso no topo dizendo que falta atualizar o banco.
+**Já usa o sistema e está atualizando?** Rode no SQL Editor só os arquivos de `supabase/migrations` que ainda não
+rodou, em ordem (`0002_colheita_real_e_metas.sql`, `0003_descarte.sql`). Eles não apagam nada e podem ser executados
+mais de uma vez. Enquanto isso não for feito, o sistema continua funcionando e mostra um aviso no topo dizendo qual
+arquivo falta.
 
 **Para liberar outra pessoa depois:** crie o usuário (passo 2) e inclua o e-mail dela em
 *Table Editor → usuarios_liberados → Insert row*. Sem isso ela consegue fazer login, mas o sistema avisa que o e-mail
@@ -152,7 +184,7 @@ Depois é só abrir o endereço que aparecer no terminal (normalmente `http://lo
 - Plantio e colheita prevista usam a data mais cedo entre as linhas; a posição no mapa usa a primeira linha com coordenada.
 - Coordenadas no formato da planilha (`173000.5` = 17°30'00.5"S) são convertidas automaticamente.
 - **Reimportar é seguro:** os dados da planilha são atualizados e tudo o que foi lançado no sistema (dessecações,
-  datas de colheita, programações, volumes colhidos, produtividade do produtor, ajustes da projeção) é mantido. Campos que saíram da planilha são apenas sinalizados,
+  datas de colheita, programações, volumes colhidos, produtividade do produtor, descartes, ajustes da projeção) é mantido. Campos que saíram da planilha são apenas sinalizados,
   com opção de inativar.
 
 ## Segurança e privacidade

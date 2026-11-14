@@ -66,6 +66,16 @@ export interface CampoPlanilha {
   linhas: LinhaOrigem[];
 }
 
+export type Descarte = 'total' | 'parcial';
+export const DESCARTES: Record<Descarte, string> = { total: 'Descartado sem colher (descarte direto)', parcial: 'Descarte parcial (colheu uma parte)' };
+export const MOTIVOS_DESCARTE: Record<string, string> = {
+  qualidade: 'Qualidade',
+  clima: 'Clima',
+  negativa_colheita: 'Negativa de colheita',
+  moega_indisponivel: 'Moega indisponível',
+};
+export const motivoDescarte = (m: string | null | undefined): string => (m ? (MOTIVOS_DESCARTE[m] ?? m) : '');
+
 /** Colunas de controle operacional (preservadas ao reimportar). */
 export interface CampoControle {
   colheita_inicio: string | null;
@@ -77,6 +87,13 @@ export interface CampoControle {
   ov_aprov: number | null;
   /** produtividade geral da área informada pelo produtor (sc/ha) */
   prod_real_sc_ha: number | null;
+  /** total = descartado sem colher nada (descarte direto); parcial = colheu uma parte e o resto foi descartado */
+  descarte: Descarte | null;
+  /** chave de MOTIVOS_DESCARTE */
+  descarte_motivo: string | null;
+  descarte_data: string | null;
+  /** observações do encerramento da colheita ou do descarte */
+  encerramento_obs: string | null;
   ativo: boolean;
   observacoes: string | null;
 }
@@ -189,6 +206,10 @@ export const CONTROLE_PADRAO: CampoControle = {
   ov_sc_ha: null,
   ov_aprov: null,
   prod_real_sc_ha: null,
+  descarte: null,
+  descarte_motivo: null,
+  descarte_data: null,
+  encerramento_obs: null,
   ativo: true,
   observacoes: null,
 };
@@ -208,6 +229,6 @@ export interface Dados {
   colheitas: ColheitaDia[];
   metas: MetaCultivar[];
   config: Config;
-  /** true quando o banco ainda não recebeu supabase/migrations/0002 (volume colhido e metas ficam desligados) */
-  faltaMigracao?: boolean;
+  /** arquivos de supabase/migrations que o banco ainda não recebeu (as funções deles ficam desligadas) */
+  faltaMigracao?: string[];
 }

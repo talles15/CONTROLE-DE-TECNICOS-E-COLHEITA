@@ -1,17 +1,21 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useDados } from '../lib/dados';
 import { br, dataProvavel, diaSemana, somaDias } from '../lib/dates';
 import { baixar, csv, n0, n1, n2, num } from '../lib/format';
 import { haversine } from '../lib/geo';
 import { chaveCampo } from '../lib/importPlanting';
 import { ir } from '../lib/rota';
-import { ATIVIDADES, STATUS_PROG, type Atividade, type Campo, type CampoPlanilha, type ColheitaDia, type Programacao, type Tecnico } from '../lib/types';
+import { MIGRACAO_0002, MIGRACAO_0003 } from '../lib/store';
+import {
+  ATIVIDADES, DESCARTES, MOTIVOS_DESCARTE, motivoDescarte, STATUS_PROG,
+  type Atividade, type Campo, type CampoPlanilha, type ColheitaDia, type Descarte, type Programacao, type Tecnico,
+} from '../lib/types';
 import { aprovadoKg, deKg, paraKg, UNIDADES, type Unidade } from '../lib/realizado';
 import { linkMapa } from '../lib/whatsapp';
 import { ControlesProg } from './ProgControles';
 import { Modal, Sit, TecChip } from './ui';
 
-export function FichaCampo({ campoId, onFechar }: { campoId: string; onFechar: () => void }) {
+export function FichaCampo({ campoId, onFechar, foco }: { campoId: string; onFechar: () => void; foco?: string }) {
   const d = useDados();
   const campo = d.campoPorId.get(campoId);
   const [editando, setEditando] = useState(false);
@@ -26,7 +30,7 @@ export function FichaCampo({ campoId, onFechar }: { campoId: string; onFechar: (
   return (
     <Modal
       titulo={<>Campo {campo.num_campo} <span className="badge">cat. {campo.categoria_colher ?? '—'}</span></>}
-      sub={<><Sit s={r.situacao} />{!campo.ativo && <> · <span className="badge">inativo</span></>}</>}
+      sub={<><Sit s={r.situacao} />{campo.descarte === 'parcial' && <> · <span className="badge desc">descarte parcial</span></>}{!campo.ativo && <> · <span className="badge">inativo</span></>}</>}
       onFechar={onFechar}
     >
       <div className="info">
@@ -63,7 +67,8 @@ export function FichaCampo({ campoId, onFechar }: { campoId: string; onFechar: (
       )}
 
       <Dessecacao campo={campo} />
-      <Colheita key={`${campo.colheita_inicio}|${campo.colheita_fim}`} campo={campo} />
+      <Colheita key={`${campo.id}|${campo.colheita_inicio}|${campo.colheita_fim}`} campo={campo} />
+      <DescarteCampo key={`${campo.id}|${campo.descarte}|${campo.descarte_motivo}|${campo.descarte_data}|${campo.encerramento_obs}`} campo={campo} foco={foco === 'descarte'} />
 
       <ColheitaReal key={'real' + campo.id} campo={campo} />
       <HistoricoTecnicos key={'hist' + campo.id} campo={campo} />
@@ -206,6 +211,109 @@ function Colheita({ campo }: { campo: Campo }) {
   );
 }
 
+/** Encerramento do campo: descarte direto (sem colher), descarte parcial, motivo e observações. */
+function DescarteCampo({ campo, foco }: { campo: Campo; foco: boolean }) {
+  const d = useDados();
+  const r = d.reais.get(campo.id)!;
+  const ref = useRef<HTMLDivElement>(null);
+  const [tipo, setTipo] = useState<Descarte | ''>(campo.descarte ?? '');
+  const [motivo, setMotivo] = useState(campo.descarte_motivo ?? '');
+  const [data, setData] = useState(campo.descarte_data ?? d.hoje);
+  const [obs, setObs] = useState(campo.encerramento_obs ?? '');
+  const [salvando, setSalvando] = useState(false);
+  useEffect(() => {
+    if (foco) ref.current?.scrollIntoView({ block: 'center' });
+  }, [foco]);
+
+  const temVolume = r.lancamentos.length > 0;
+  const mudou = tipo !== (campo.descarte ?? '') || motivo !== (campo.descarte_motivo ?? '') || (tipo && data !== (campo.descarte_data ?? '')) || obs.trim() !== (campo.encerramento_obs ?? '');
+
+  async function salvar() {
+    const o = obs.trim() || null;
+    if (!tipo) {
+      await d.atualizarCampos([campo.id], { descarte: null, descarte_motivo: null, descarte_data: null, encerramento_obs: o }, campo.descarte ? 'Descarte desfeito.' : 'Observações salvas.');
+      return;
+    }
+    if (!motivo) return d.avisar('Escolha o motivo do descarte.', 'erro');
+    if (!data) return d.avisar('Informe a data do descarte.', 'erro');
+    const patch: Partial<Campo> = { descarte: tipo, descarte_motivo: motivo, descarte_data: data, encerramento_obs: o };
+    if (tipo === 'total') {
+      if (temVolume) return d.avisar('Este campo já tem volume lançado: use “Descarte parcial”.', 'erro');
+      // descartado sem colher: não fica com datas de colheita
+      patch.colheita_inicio = null;
+      patch.colheita_fim = null;
+    } else {
+      const inicio = campo.colheita_inicio ?? r.lancamentos[0]?.data ?? null;
+      if (!inicio) return d.avisar('No descarte parcial o campo colheu uma parte: informe o início da colheita ou lance o volume antes.', 'erro');
+      if (data < inicio) return d.avisar('A data do descarte não pode ser antes do início da colheita.', 'erro');
+      patch.colheita_inicio = inicio;
+      patch.colheita_fim = campo.colheita_fim ?? data;
+    }
+    setSalvando(true);
+    const ok = await d.atualizarCampos([campo.id], patch, tipo === 'total' ? 'Campo descartado sem colher.' : 'Descarte parcial registrado.');
+    if (ok) {
+      // o campo não será mais visitado: as escalas futuras ficam canceladas (e continuam no histórico)
+      const futuras = d.dados.programacoes.filter((p) => p.campo_id === campo.id && p.status === 'planejado' && p.data > d.hoje);
+      for (const p of futuras) await d.atualizarProgramacao(p.id, { status: 'cancelado' });
+      if (futuras.length) d.avisar(`${futuras.length} escala(s) futura(s) deste campo foram canceladas.`);
+    }
+    setSalvando(false);
+  }
+
+  return (
+    <div className={'secao' + (foco ? ' foco' : '')} ref={ref} data-testid="descarte">
+      <h3>Encerramento e descarte</h3>
+      <div className="sub" style={{ marginBottom: 8 }}>Registre aqui quando o campo for descartado sem colher, ou quando a colheita terminar e uma parte ficar para trás. O volume descartado sai do que ainda há para colher.</div>
+      {d.dados.faltaMigracao?.includes(MIGRACAO_0003) && <div className="caixa-info atencao">Para gravar o descarte, rode antes o arquivo <b>supabase/migrations/{MIGRACAO_0003}</b> no SQL Editor do Supabase.</div>}
+      {campo.descarte && (
+        <div className="caixa-info atencao" data-testid="descarte-resumo">
+          <b>{DESCARTES[campo.descarte]}</b> em {br(campo.descarte_data)} · motivo: <b>{motivoDescarte(campo.descarte_motivo) || '—'}</b>.{' '}
+          {campo.descarte === 'total'
+            ? <>O campo inteiro saiu da conta: {n1(r.areaDescartada)} ha, ≈ {n0(r.scDescartado)} sc que seriam internalizados.</>
+            : <>Ficaram para trás ≈ {n1(r.areaDescartada)} ha, ≈ {n0(r.scDescartado)} sc ({r.descarteEstimado ? 'projetado pelo volume internalizado' : 'área do campo − área colhida lançada'}).</>}
+        </div>
+      )}
+      <div className="form">
+        <div className="campo">
+          <label htmlFor="dcTipo">Descarte</label>
+          <select id="dcTipo" value={tipo} onChange={(e) => setTipo(e.target.value as Descarte | '')}>
+            <option value="">Sem descarte</option>
+            <option value="total">{DESCARTES.total}</option>
+            <option value="parcial">{DESCARTES.parcial}</option>
+          </select>
+        </div>
+        {tipo && (
+          <>
+            <div className="campo">
+              <label htmlFor="dcMotivo">Motivo do descarte</label>
+              <select id="dcMotivo" value={motivo} onChange={(e) => setMotivo(e.target.value)}>
+                <option value="">Escolha…</option>
+                {Object.entries(MOTIVOS_DESCARTE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                {motivo && !(motivo in MOTIVOS_DESCARTE) && <option value={motivo}>{motivo}</option>}
+              </select>
+            </div>
+            <div className="campo">
+              <label htmlFor="dcData">Data do descarte</label>
+              <input id="dcData" type="date" value={data} onChange={(e) => setData(e.target.value)} />
+            </div>
+          </>
+        )}
+        <div className="campo largo">
+          <label htmlFor="dcObs">Observações do encerramento</label>
+          <textarea id="dcObs" value={obs} onChange={(e) => setObs(e.target.value)} placeholder="O que aconteceu, quem decidiu, laudo, etc." />
+        </div>
+      </div>
+      <div className="btns" style={{ marginTop: 10 }}>
+        <button className={'btn' + (tipo ? ' perigo' : ' primary')} disabled={salvando || !mudou} onClick={() => void salvar()}>
+          {salvando ? 'Salvando…' : !tipo ? (campo.descarte ? 'Desfazer descarte' : 'Salvar observações') : campo.descarte ? 'Salvar alteração' : 'Registrar descarte'}
+        </button>
+        {tipo === 'total' && campo.colheita_inicio && !campo.descarte && <span className="sub">A data de início da colheita será apagada.</span>}
+        {tipo === 'parcial' && !campo.colheita_fim && !campo.descarte && <span className="sub">A colheita será finalizada na data do descarte.</span>}
+      </div>
+    </div>
+  );
+}
+
 const LS_UNIDADE = 'ctc_unidade_volume';
 function unidadeSalva(): Unidade {
   try {
@@ -278,7 +386,7 @@ function ColheitaReal({ campo }: { campo: Campo }) {
   }
 
   const temVolume = r.lancamentos.length > 0;
-  const emAndamento = !campo.colheita_fim;
+  const emAndamento = !campo.colheita_fim && !campo.descarte;
   const areaExcede = r.areaColhida != null && r.areaCampo > 0 && r.areaColhida > r.areaCampo * 1.02;
 
   return (
@@ -295,7 +403,7 @@ function ColheitaReal({ campo }: { campo: Campo }) {
           </select>
         </label>
       </div>
-      {d.dados.faltaMigracao && <div className="caixa-info atencao">Para gravar volumes e produtividade, rode antes o arquivo <b>supabase/migrations/0002_colheita_real_e_metas.sql</b> no SQL Editor do Supabase.</div>}
+      {d.dados.faltaMigracao?.includes(MIGRACAO_0002) && <div className="caixa-info atencao">Para gravar volumes e produtividade, rode antes o arquivo <b>supabase/migrations/0002_colheita_real_e_metas.sql</b> no SQL Editor do Supabase.</div>}
 
       <div className="reais">
         <div className="real"><span>Colhido e entregue na UBS</span><b>{n0(r.colhidoSc)} sc</b><small>{n1(r.colhidoKg / 1000)} t · {r.dias} dia(s) lançado(s)</small></div>

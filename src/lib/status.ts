@@ -1,7 +1,7 @@
 import { difDias } from './dates';
 import type { Campo, Dessecacao, Programacao, Tecnico } from './types';
 
-export type Situacao = 'plantado' | 'dessecado' | 'programada' | 'em_colheita' | 'colhido';
+export type Situacao = 'plantado' | 'dessecado' | 'programada' | 'em_colheita' | 'colhido' | 'descartado';
 
 export const SITUACOES: Record<Situacao, { rotulo: string; cor: string }> = {
   plantado: { rotulo: 'Plantado', cor: 'var(--st-plantado)' },
@@ -9,8 +9,12 @@ export const SITUACOES: Record<Situacao, { rotulo: string; cor: string }> = {
   programada: { rotulo: 'Colheita programada', cor: 'var(--st-programada)' },
   em_colheita: { rotulo: 'Em colheita', cor: 'var(--st-colheita)' },
   colhido: { rotulo: 'Colhido', cor: 'var(--st-colhido)' },
+  descartado: { rotulo: 'Descartado', cor: 'var(--st-descartado)' },
 };
-export const ORDEM_SITUACAO: Situacao[] = ['plantado', 'dessecado', 'programada', 'em_colheita', 'colhido'];
+export const ORDEM_SITUACAO: Situacao[] = ['plantado', 'dessecado', 'programada', 'em_colheita', 'colhido', 'descartado'];
+
+/** Campo que não tem mais nada a colher: colheita finalizada ou descartado sem colher. */
+export const encerrado = (c: Campo): boolean => !!c.colheita_fim || c.descarte === 'total';
 
 export interface Resumo {
   situacao: Situacao;
@@ -26,7 +30,8 @@ export function resumoCampo(campo: Campo, dess: Dessecacao[], hoje: string): Res
   const provaveis = ordenadas.map((d) => d.data_provavel_colheita).filter((d): d is string => !!d).sort();
   const provavel = provaveis[0] ?? null;
   let situacao: Situacao = 'plantado';
-  if (campo.colheita_fim) situacao = 'colhido';
+  if (campo.descarte === 'total') situacao = 'descartado';
+  else if (campo.colheita_fim) situacao = 'colhido';
   else if (campo.colheita_inicio && campo.colheita_inicio <= hoje) situacao = 'em_colheita';
   else if (campo.colheita_inicio || provavel) situacao = 'programada';
   else if (ordenadas.length) situacao = 'dessecado';
@@ -71,7 +76,7 @@ export function gerarAlertas(
   const out: Alerta[] = [];
   for (const d of dessecacoes) {
     const campo = porId.get(d.campo_id);
-    if (!campo || !campo.ativo || campo.colheita_fim || !d.data_provavel_colheita) continue;
+    if (!campo || !campo.ativo || encerrado(campo) || !d.data_provavel_colheita) continue;
     const faltam = difDias(d.data_provavel_colheita, hoje);
     let tipo: TipoAlerta | null = null;
     if (faltam < 0) tipo = campo.colheita_inicio ? null : 'atrasado';

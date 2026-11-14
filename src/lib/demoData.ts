@@ -121,12 +121,20 @@ export function dadosDemo(hoje: string = hojeIso()): Dados {
         id: id('prog', programacoes.length + 1), data: somaDias(c.colheita_inicio, -1), tecnico_id: tecnicos[(i + 2) % tecnicos.length].id,
         campo_id: c.id, atividade: 'coleta_pre', status: 'realizado', observacoes: null,
       });
-      for (let k = 0; k < 4; k++) {
+      // o 2º campo parou depois de 3/4 da área: descarte parcial por qualidade
+      const dias = i === 1 ? 3 : 4;
+      for (let k = 0; k < dias; k++) {
         programacoes.push({
           id: id('prog', programacoes.length + 1), data: somaDias(c.colheita_inicio, k), tecnico_id: tecnicos[(i + (k > 1 ? 1 : 0)) % tecnicos.length].id,
           campo_id: c.id, atividade: 'colheita_pre', status: 'realizado', observacoes: null,
         });
         volume(somaDias(c.colheita_inicio, k), area / 4, 44 + i * 2 + k, k === 3 ? 90 : 100);
+      }
+      if (i === 1) {
+        c.descarte = 'parcial';
+        c.descarte_motivo = 'qualidade';
+        c.descarte_data = c.colheita_fim;
+        c.encerramento_obs = 'Último talhão com dano mecânico acima do limite: ficou para grão.';
       }
     } else if (i < 7) {
       // em colheita
@@ -158,6 +166,13 @@ export function dadosDemo(hoje: string = hojeIso()): Dados {
     } else if (i === 17) {
       // atrasado: data provável passou e a colheita não começou
       dess(somaDias(hoje, -9), 6, area);
+    } else if (i === 19) {
+      // descartado sem colher
+      dess(somaDias(hoje, -12), 6, area);
+      c.descarte = 'total';
+      c.descarte_motivo = 'clima';
+      c.descarte_data = somaDias(hoje, -4);
+      c.encerramento_obs = 'Chuva na pré-colheita: germinação abaixo do padrão.';
     }
     campos.push(c);
   }

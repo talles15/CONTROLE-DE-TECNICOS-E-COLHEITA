@@ -71,13 +71,17 @@ export function inicioColheita(c: Campo, provavel: string | null | undefined, P:
   return null;
 }
 
-export function projetar(campos: Campo[], provaveis: Map<string, string | null>, P: Parametros): Projecao {
+/**
+ * `descartada` = hectares descartados por campo. Campo descartado sem colher sai da projeção;
+ * no descarte parcial só entra a área que foi de fato colhida.
+ */
+export function projetar(campos: Campo[], provaveis: Map<string, string | null>, P: Parametros, descartada?: Map<string, number>): Projecao {
   const unidades: Unidade[] = [];
   const semData: Campo[] = [];
   const porDia = new Map<number, DiaProj>();
   for (const c of campos) {
-    if (!c.ativo || !c.incluir_projecao) continue;
-    const area = areaDe(c, P);
+    if (!c.ativo || !c.incluir_projecao || c.descarte === 'total') continue;
+    const area = areaDe(c, P) - (c.descarte === 'parcial' ? (descartada?.get(c.id) ?? 0) : 0);
     if (!(area > 0)) continue;
     const ini = inicioColheita(c, provaveis.get(c.id), P);
     if (!ini) {

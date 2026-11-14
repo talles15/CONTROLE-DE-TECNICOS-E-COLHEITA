@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 
-export type Aba = 'calendario' | 'campos' | 'programacao' | 'internalizacao' | 'metas' | 'mapa' | 'tecnicos' | 'importar';
+export type Aba = 'calendario' | 'campos' | 'programacao' | 'internalizacao' | 'metas' | 'ranking' | 'mapa' | 'tecnicos' | 'importar';
 export const ABAS: { id: Aba; rotulo: string }[] = [
   { id: 'calendario', rotulo: 'Calendário' },
   { id: 'campos', rotulo: 'Campos' },
   { id: 'programacao', rotulo: 'Programação' },
   { id: 'internalizacao', rotulo: 'Internalização' },
   { id: 'metas', rotulo: 'Metas' },
+  { id: 'ranking', rotulo: 'Ranking' },
   { id: 'mapa', rotulo: 'Mapa' },
   { id: 'tecnicos', rotulo: 'Técnicos' },
   { id: 'importar', rotulo: 'Importar campos' },
@@ -40,8 +41,8 @@ export function useRota(): Rota {
   return rota;
 }
 
-/** Abre a ficha do campo por cima da aba atual. */
-export function abrirFicha(id: string): void {
+/** Abre a ficha do campo por cima da aba atual. `foco` leva direto a uma parte dela (ex.: 'descarte'). */
+export function abrirFicha(id: string, foco?: string): void {
   const r = ler();
-  ir(r.aba, { ...r.params, ficha: id });
+  ir(r.aba, { ...r.params, ficha: id, foco });
 }

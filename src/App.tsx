@@ -3,7 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { FichaCampo } from './components/FichaCampo';
 import { ProvedorDados, useDados } from './lib/dados';
 import { ABAS, ir, useRota } from './lib/rota';
-import { DemoStore, SupabaseStore, type Store } from './lib/store';
+import { DemoStore, MIGRACAO_0002, MIGRACAO_0003, SupabaseStore, type Store } from './lib/store';
 import { pendencias, supabase } from './lib/supabase';
 import Calendario from './pages/Calendario';
 import Campos from './pages/Campos';
@@ -13,6 +13,7 @@ import Login from './pages/Login';
 import Mapa from './pages/Mapa';
 import Metas from './pages/Metas';
 import Programacao from './pages/Programacao';
+import Ranking from './pages/Ranking';
 import Tecnicos from './pages/Tecnicos';
 
 export default function App() {
@@ -46,7 +47,7 @@ function Casca({ email }: { email: string | null }) {
   const urgentes = alertas.filter((a) => a.tipo !== 'proximos').length;
   const ficha = rota.params.ficha;
   const fecharFicha = () => {
-    const { ficha: _f, ...resto } = rota.params;
+    const { ficha: _f, foco: _o, ...resto } = rota.params;
     ir(rota.aba, resto);
   };
 
@@ -84,10 +85,12 @@ function Casca({ email }: { email: string | null }) {
         </div>
       </div>
       <main className="wrap">
-        {dados.faltaMigracao && (
+        {!!dados.faltaMigracao?.length && (
           <div className="caixa-info atencao" data-testid="falta-migracao">
-            <b>Falta atualizar o banco.</b> Para usar o volume colhido, a produtividade do produtor e a aba Metas, abra o Supabase → SQL Editor, cole o conteúdo de{' '}
-            <b>supabase/migrations/0002_colheita_real_e_metas.sql</b> e clique em Run. O restante do sistema segue funcionando normalmente.
+            <b>Falta atualizar o banco.</b> Abra o Supabase → SQL Editor e rode, nesta ordem, o conteúdo de{' '}
+            {dados.faltaMigracao.map((f, i) => <span key={f}>{i > 0 && ' e depois '}<b>supabase/migrations/{f}</b></span>)}.
+            {' '}Até lá{dados.faltaMigracao.includes(MIGRACAO_0002) && ' o volume colhido e a aba Metas'}
+            {dados.faltaMigracao.length > 1 && ' e'}{dados.faltaMigracao.includes(MIGRACAO_0003) && ' o registro de descarte'} não grava{dados.faltaMigracao.length > 1 ? 'm' : ''}; o restante do sistema segue funcionando normalmente.
           </div>
         )}
         {rota.aba === 'calendario' && <Calendario />}
@@ -95,11 +98,12 @@ function Casca({ email }: { email: string | null }) {
         {rota.aba === 'programacao' && <Programacao params={rota.params} />}
         {rota.aba === 'internalizacao' && <Internalizacao />}
         {rota.aba === 'metas' && <Metas />}
+        {rota.aba === 'ranking' && <Ranking />}
         {rota.aba === 'mapa' && <Mapa />}
         {rota.aba === 'tecnicos' && <Tecnicos />}
         {rota.aba === 'importar' && <Importar />}
       </main>
-      {ficha && <FichaCampo campoId={ficha} onFechar={fecharFicha} />}
+      {ficha && <FichaCampo campoId={ficha} foco={rota.params.foco} onFechar={fecharFicha} />}
     </>
   );
 }
