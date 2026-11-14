@@ -557,18 +557,24 @@ describe('ranking de cooperados', () => {
   };
 
   it('ordena pelo volume internalizado e mostra que quem entregou mais pode ter aproveitado menos', () => {
-    // GRANDE: 1.000 ha → potencial 65.000 sc, internalizou 26.000 (40%); PEQUENO: 100 ha → 6.500 sc, internalizou 6.500 (100%)
-    const R = rank([c('g1', 'GRANDE', 600), c('g2', ' grande ', 400), c('p1', 'PEQUENO', 100)], [vol('g1', 20000), vol('g2', 8000, 6000), vol('p1', 6500)]);
+    // potencial = área × 65 sc/ha × 70% de aproveitamento (os dois da aba Internalização)
+    // GRANDE: 1.000 ha → 45.500 sc, internalizou 26.000 (57,1%); PEQUENO: 100 ha → 4.550 sc, internalizou 4.550 (100%)
+    const R = rank([c('g1', 'GRANDE', 600), c('g2', ' grande ', 400), c('p1', 'PEQUENO', 100)], [vol('g1', 20000), vol('g2', 8000, 6000), vol('p1', 4550)]);
     expect(R.cooperados.map((g) => [g.posicao, g.nome, g.campos.length])).toEqual([[1, 'GRANDE', 2], [2, 'PEQUENO', 1]]);
     const [grande, pequeno] = R.cooperados;
-    expect([grande.potContaSc, grande.colhidoSc, grande.internSc]).toEqual([65000, 28000, 26000]);
-    expect(grande.aprovPct).toBeCloseTo(40, 9);
+    expect([grande.colhidoSc, grande.internSc]).toEqual([28000, 26000]);
+    expect(grande.potContaSc).toBeCloseTo(45500, 6);
+    expect(grande.aprovPct).toBeCloseTo((26000 / 45500) * 100, 9);
+    expect(pequeno.potContaSc).toBeCloseTo(4550, 6);
     expect(pequeno.aprovPct).toBeCloseTo(100, 9);
-    expect(grande.participacao).toBeCloseTo(80, 9);
-    expect([R.internSc, R.colhidoSc, R.comEntrega]).toEqual([32500, 34500, 2]);
-    expect(R.aprovPct).toBeCloseTo((32500 / 71500) * 100, 9);
+    expect(grande.participacao).toBeCloseTo((26000 / 30550) * 100, 9);
+    expect([R.internSc, R.colhidoSc, R.comEntrega]).toEqual([30550, 32550, 2]);
+    expect(R.aprovPct).toBeCloseTo((30550 / 50050) * 100, 9);
     // campo a campo, do que mais entregou para o que menos entregou
-    expect(grande.campos.map((x) => [x.campo.id, x.potencialSc, x.internSc])).toEqual([['g1', 39000, 20000], ['g2', 26000, 6000]]);
+    expect(grande.campos.map((x) => [x.campo.id, Math.round(x.potencialSc), x.internSc])).toEqual([['g1', 27300, 20000], ['g2', 18200, 6000]]);
+    // ajuste por campo na Internalização (sc/ha e aproveitamento) também vale para o potencial do ranking
+    const aj = rank([c('a', 'AJUSTADO', 100, { ov_sc_ha: 80, ov_aprov: 50 })], [vol('a', 4000)]).cooperados[0];
+    expect([aj.potContaSc, aj.aprovPct]).toEqual([4000, 100]);
   });
   it('campo ainda por colher não pesa; em colheita pesa só a área colhida; descartado sem colher pesa inteiro', () => {
     const R = rank([
@@ -579,10 +585,10 @@ describe('ranking de cooperados', () => {
     ], [vol('b', 3250, null, 100)]);
     const joao = R.cooperados[0];
     expect([joao.nAColher, joao.nEmColheita, joao.nDescartados, joao.nColhidos]).toEqual([1, 1, 1, 0]);
-    // potencial na conta: 100 ha colhidos × 65 + 50 ha descartados × 65 = 9.750 (os 100 ha por colher e o resto do campo b ficam fora)
-    expect(joao.potContaSc).toBe(9750);
-    expect(joao.potencialSc).toBe(350 * 65);
-    expect(joao.aprovPct).toBeCloseTo((3250 / 9750) * 100, 9);
+    // potencial na conta: (100 ha colhidos + 50 ha descartados) × 65 × 70% = 6.825 (os 100 ha por colher e o resto do campo b ficam fora)
+    expect(joao.potContaSc).toBeCloseTo(6825, 6);
+    expect(joao.potencialSc).toBeCloseTo(350 * 45.5, 6);
+    expect(joao.aprovPct).toBeCloseTo((3250 / 6825) * 100, 9);
     expect(joao.campos.find((x) => x.campo.id === 'd')!.aprovPct).toBe(0);
     expect(joao.campos.find((x) => x.campo.id === 'a')!.aprovPct).toBeNull();
     const maria = R.cooperados[1];
@@ -593,7 +599,7 @@ describe('ranking de cooperados', () => {
     const base = [c('a', 'JOÃO', 100), c('x', 'JOÃO', 500, { ativo: false })];
     const sem = rank(base, [vol('a', 3000), vol('x', 9000)]).cooperados[0];
     const com = rank([{ ...base[0], prod_real_sc_ha: 30 }, base[1]], [vol('a', 3000), vol('x', 9000)]).cooperados[0];
-    expect([sem.internSc, sem.potContaSc, sem.campos.length]).toEqual([3000, 6500, 1]);
+    expect([sem.internSc, Math.round(sem.potContaSc), sem.campos.length]).toEqual([3000, 4550, 1]);
     expect([com.internSc, com.potContaSc, com.aprovPct]).toEqual([sem.internSc, sem.potContaSc, sem.aprovPct]);
   });
   it('relatório de colheita e descartes: datas, descarte direto, motivo, observações e volume descartado', () => {

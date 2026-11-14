@@ -94,9 +94,10 @@ O volume descartado é **abatido do que ainda há para colher** (aba Metas) e da
 ### Ranking de cooperados
 
 - **Posição**: pelo volume aprovado e internalizado, somando os campos do cooperado (coluna *Cliente* da planilha).
-- **Potencial** = área × sc/ha da aba Internalização (ou o ajuste do campo). Entram só os campos já colhidos, em
+- **Potencial** = área × sc/ha × aproveitamento de campo, os dois da aba Internalização (ou o ajuste do campo): é o
+  volume que o campo deveria internalizar. Entram só os campos já colhidos, em
   colheita ou descartados; campo ainda por colher não pesa contra o cooperado.
-- **Aproveitamento** = aprovado e internalizado ÷ potencial. Assim dá para ver quem entregou muito mas pouco em relação
+- **Aproveitamento** = aprovado e internalizado ÷ potencial; quem internaliza o previsto fica com 100%. Assim dá para ver quem entregou muito mas pouco em relação
   ao que tinha, e quem tinha pouca área e entregou tudo. Campo descartado sem colher conta com o potencial inteiro.
 - A produtividade informada pelo produtor não entra no ranking: ela continua só informativa, na ficha.
 - **Relatório de colheita e descartes (CSV)**: uma linha por campo com início e fim da colheita, se foi descartado

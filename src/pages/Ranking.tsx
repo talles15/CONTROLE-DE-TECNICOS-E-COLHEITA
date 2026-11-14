@@ -102,7 +102,7 @@ export default function Ranking() {
           <table data-testid="tabela-ranking" className="quebra">
             <thead><tr>
               <th className="n">#</th>{th('nome', 'Cooperado', false)}<th>Campos</th>{th('area', 'Área (ha)')}
-              {th('pot', 'Potencial (sc)', true, 'Área × sc/ha da aba Internalização, só dos campos já colhidos, em colheita ou descartados')}
+              {th('pot', 'Potencial (sc)', true, 'Área × sc/ha × aproveitamento da aba Internalização, só dos campos já colhidos, em colheita ou descartados')}
               {th('colhido', 'Colhido e entregue (sc)')}{th('intern', 'Aprovado e internalizado (sc)')}
               {th('aprov', 'Aproveitamento', true, 'Aprovado e internalizado ÷ potencial')}{th('desc', 'Descartado (sc)')}
             </tr></thead>
@@ -166,8 +166,8 @@ export default function Ranking() {
         <h2>Como o ranking é calculado</h2>
         <ul>
           <li><b>Posição</b>: pelo volume <b>aprovado e internalizado</b> na UBS, somando os lançamentos das fichas de todos os campos do cooperado. A barra mostra a participação dele no total.</li>
-          <li><b>Potencial</b> = área do campo × sc/ha da aba Internalização ({n0(P.scHa)} sc/ha, ou o ajuste feito por campo lá). Só entram os campos já colhidos, em colheita ou descartados; campo ainda por colher não pesa contra o cooperado.</li>
-          <li><b>Aproveitamento</b> = aprovado e internalizado ÷ potencial. É o que permite comparar quem tinha muita área e entregou pouco com quem tinha pouca área e entregou tudo. Campo descartado sem colher conta com o potencial inteiro e zero de entrega.</li>
+          <li><b>Potencial</b> = área do campo × sc/ha × aproveitamento, os dois da aba Internalização ({n0(P.scHa)} sc/ha e {n0(P.aprov)}%, ou o ajuste feito por campo lá). É o volume que o campo deveria internalizar. Só entram os campos já colhidos, em colheita ou descartados; campo ainda por colher não pesa contra o cooperado.</li>
+          <li><b>Aproveitamento</b> = aprovado e internalizado ÷ potencial. Quem internaliza exatamente o previsto fica com 100%; acima disso, entregou mais que o esperado. É o que permite comparar quem tinha muita área e entregou pouco com quem tinha pouca área e entregou tudo. Campo descartado sem colher conta com o potencial inteiro e zero de entrega.</li>
           <li>Com a colheita em andamento e a área colhida lançada, o potencial considera só a área já colhida. A produtividade informada pelo produtor não entra aqui: ela continua só na ficha do campo.</li>
           <li><b>Descartado</b>: no descarte direto, a internalização prevista do campo inteiro (área × sc/ha × {n0(P.aprov)}%). No descarte parcial, o que sobrou: pela área colhida lançada ou, sem ela, projetado pelo volume internalizado (previsto − internalizado).</li>
         </ul>
