@@ -35,9 +35,7 @@ export interface RealCampo {
   aprovPct: number | null;
   /** sacos internalizados por hectare */
   internScHa: number | null;
-  /** potencial pelos parâmetros da aba Internalização = área do campo × sc/ha (100%); base do ranking de cooperados */
-  potPainelSc: number;
-  /** internalização prevista para o campo inteiro = potencial × aproveitamento de campo */
+  /** internalização prevista para o campo inteiro = área × sc/ha × aproveitamento de campo (aba Internalização); é o potencial do ranking */
   previstoSc: number;
   /** área descartada: o campo inteiro no descarte direto; no parcial, o que sobrou sem colher */
   areaDescartada: number;
@@ -118,7 +116,6 @@ export function realCampo(c: Campo, lanc: ColheitaDia[], P: Parametros): RealCam
     naoEnviadoSc: temVolume && potencialSc != null ? Math.max(0, potencialSc - colhidoSc) : null,
     aprovPct: temVolume && potencialSc != null && potencialSc > 0 ? (internSc / potencialSc) * 100 : null,
     internScHa: temVolume && areaBase > 0 ? internSc / areaBase : null,
-    potPainelSc: areaCampo * scHaPainel,
     previstoSc: areaCampo * esperadoHa,
     areaDescartada, descarteEstimado,
     scDescartado: areaDescartada * esperadoHa,

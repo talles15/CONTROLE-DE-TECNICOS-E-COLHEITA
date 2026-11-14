@@ -1,6 +1,7 @@
 // Ranking de cooperados: quem mais contribuiu com a produção e quanto do potencial de cada um virou semente.
 //
-//   potencial do campo = área × sc/ha da aba Internalização (ou o ajuste do campo)
+//   potencial do campo = área × sc/ha × aproveitamento de campo, os dois da aba Internalização (ou o ajuste do campo):
+//                        é o que o campo deveria internalizar, então entregar o previsto dá 100%
 //   aproveitamento     = aprovado e internalizado ÷ potencial dos campos já colhidos, em colheita ou descartados
 //
 // A produtividade informada pelo produtor não entra aqui: ela é só informativa e fica na ficha do campo.
@@ -69,11 +70,11 @@ export function campoRank(c: Campo, real: RealCampo, situacao: Situacao): CampoR
   const fechado = !!c.colheita_fim || !!c.descarte;
   // encerrado → campo inteiro; em colheita → só a área já colhida, se lançada; ainda por colher → fora da conta
   let potContaSc = 0;
-  if (fechado) potContaSc = real.potPainelSc;
-  else if (temVolume) potContaSc = real.areaColhida != null && real.areaCampo > 0 ? (real.potPainelSc * real.areaColhida) / real.areaCampo : real.potPainelSc;
+  if (fechado) potContaSc = real.previstoSc;
+  else if (temVolume) potContaSc = real.areaColhida != null && real.areaCampo > 0 ? (real.previstoSc * real.areaColhida) / real.areaCampo : real.previstoSc;
   return {
     campo: c, real, situacao,
-    potencialSc: real.potPainelSc, potContaSc,
+    potencialSc: real.previstoSc, potContaSc,
     emAndamento: !fechado && temVolume,
     colhidoSc: real.colhidoSc, internSc: real.internSc,
     aprovPct: potContaSc > 0 ? (real.internSc / potContaSc) * 100 : null,

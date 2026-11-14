@@ -433,10 +433,10 @@ try {
   const txtCoop = await linhaCoop.innerText();
   ok(/^1º/.test(txtCoop.trim()) && /4\.500/.test(txtCoop), 'o cooperado que mais internalizou fica em 1º (4.500 sc)');
   if (!real) {
-    // potencial do campo encerrado: 300 ha × 65 sc/ha = 19.500 sc → 4.500 ÷ 19.500 = 23,1%
-    ok(/19\.500/.test(txtCoop) && /23,1%/.test(txtCoop) && /6\.825/.test(txtCoop), 'aproveitamento = internalizado ÷ potencial (4.500 ÷ 19.500 = 23,1%), com o descartado ao lado');
+    // potencial do campo encerrado: 300 ha × 65 sc/ha × 70% = 13.650 sc → 4.500 ÷ 13.650 = 33,0%
+    ok(/13\.650/.test(txtCoop) && /33,0%/.test(txtCoop) && /6\.825/.test(txtCoop), 'aproveitamento = internalizado ÷ potencial com o aproveitamento da Internalização (4.500 ÷ 13.650 = 33,0%), com o descartado ao lado');
     const txtA = await tabRank.locator('tr[data-cooperado="Cliente Exemplo A"]').innerText();
-    ok(/1 descartado/.test(txtA) && /13\.000/.test(txtA) && /0,0%/.test(txtA) && /9\.100/.test(txtA), 'quem teve campo descartado sem colher aparece com o potencial (13.000 sc) e 0% de aproveitamento');
+    ok(/1 descartado/.test(txtA) && (txtA.match(/9\.100/g) ?? []).length === 2 && /0,0%/.test(txtA), 'quem teve campo descartado sem colher aparece com o potencial (200 ha × 65 × 70% = 9.100 sc) e 0% de aproveitamento');
     const kpisRank = await p.getByTestId('kpis-ranking').innerText();
     ok(/1 de 4/.test(kpisRank) && /15\.925 sc/.test(kpisRank), 'indicadores: 1 de 4 cooperados com entrega e 15.925 sc descartados');
     const motivos = await p.getByTestId('tabela-motivos').innerText();
