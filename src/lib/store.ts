@@ -102,18 +102,18 @@ export class SupabaseStore implements Store {
         'Seu e-mail ainda não está liberado para usar o sistema. Peça ao administrador para incluí-lo na tabela "usuarios_liberados" do Supabase.',
       );
     }
-    // as tabelas da migração 0002 podem ainda não existir: o resto do sistema continua funcionando
-    let faltaMigracao = false;
+    // as tabelas e colunas das migrações mais novas podem ainda não existir: o resto do sistema continua funcionando
+    const faltaMigracao = new Set<string>();
     const opcional = async <T,>(tabela: string, ordem: string): Promise<T[]> => {
       try {
         return await this.todos<T>(tabela, ordem);
       } catch (e) {
         if (!(e instanceof Error) || e.message !== SEM_TABELAS) throw e;
-        faltaMigracao = true;
+        faltaMigracao.add(MIGRACAO_0002);
         return [];
       }
     };
-    const [tecnicos, campos, dessecacoes, programacoes, colheitas, metas, cfg] = await Promise.all([
+    const [tecnicos, campos, dessecacoes, programacoes, colheitas, metas, cfg, sondaDescarte] = await Promise.all([
       this.todos<Tecnico>('tecnicos', 'nome'),
       this.todos<Campo>('campos', 'num_campo'),
       this.todos<Dessecacao>('dessecacoes', 'data'),
@@ -121,12 +121,18 @@ export class SupabaseStore implements Store {
       opcional<ColheitaDia>('colheitas_diarias', 'data'),
       opcional<MetaCultivar>('metas_cultivar', 'cultivar'),
       this.sb.from('configuracoes').select('dados').eq('id', 1).maybeSingle(),
+      // pergunta pela coluna nova mesmo sem nenhum campo cadastrado
+      this.sb.from('campos').select('descarte').range(0, 0),
     ]);
     if (cfg.error) throw new Error(erroPt(cfg.error.message));
-    if (campos.length && !('prod_real_sc_ha' in campos[0])) faltaMigracao = true;
+    if (campos.length && !('prod_real_sc_ha' in campos[0])) faltaMigracao.add(MIGRACAO_0002);
+    if (sondaDescarte.error) {
+      if (erroPt(sondaDescarte.error.message) !== SEM_TABELAS) throw new Error(erroPt(sondaDescarte.error.message));
+      faltaMigracao.add(MIGRACAO_0003);
+    }
     return {
-      tecnicos, dessecacoes, programacoes, colheitas, metas, faltaMigracao,
-      campos: campos.map((c) => ({ ...c, prod_real_sc_ha: c.prod_real_sc_ha ?? null })),
+      tecnicos, dessecacoes, programacoes, colheitas, metas, faltaMigracao: [...faltaMigracao].sort(),
+      campos: campos.map(completarCampo),
       config: mesclarConfig(cfg.data?.dados),
     };
   }
@@ -242,8 +248,22 @@ export class SupabaseStore implements Store {
   }
 }
 
+export const MIGRACAO_0002 = '0002_colheita_real_e_metas.sql';
+export const MIGRACAO_0003 = '0003_descarte.sql';
 export const SEM_TABELAS =
-  'O banco do Supabase está sem as tabelas mais recentes. No SQL Editor, rode os arquivos da pasta supabase/migrations (0001_schema.sql e 0002_colheita_real_e_metas.sql).';
+  `O banco do Supabase está sem as tabelas ou colunas mais recentes. No SQL Editor, rode em ordem os arquivos da pasta supabase/migrations (0001_schema.sql, ${MIGRACAO_0002} e ${MIGRACAO_0003}).`;
+
+/** Campos gravados antes das colunas novas existirem. */
+function completarCampo(c: Campo): Campo {
+  return {
+    ...c,
+    prod_real_sc_ha: c.prod_real_sc_ha ?? null,
+    descarte: c.descarte ?? null,
+    descarte_motivo: c.descarte_motivo ?? null,
+    descarte_data: c.descarte_data ?? null,
+    encerramento_obs: c.encerramento_obs ?? null,
+  };
+}
 
 function erroPt(msg: string): string {
   if (/relation .* does not exist|schema cache|could not find the function|column .* does not exist/i.test(msg)) return SEM_TABELAS;
@@ -443,7 +463,7 @@ export class DemoStore implements Store {
 function completar(d: Dados): Dados {
   return {
     ...d,
-    campos: (d.campos ?? []).map((c) => ({ ...c, prod_real_sc_ha: c.prod_real_sc_ha ?? null })),
+    campos: (d.campos ?? []).map(completarCampo),
     colheitas: d.colheitas ?? [],
     metas: d.metas ?? [],
     config: mesclarConfig(d.config),

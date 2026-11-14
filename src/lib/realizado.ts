@@ -35,7 +35,17 @@ export interface RealCampo {
   aprovPct: number | null;
   /** sacos internalizados por hectare */
   internScHa: number | null;
-  /** área que ainda falta colher (0 quando a colheita foi encerrada) */
+  /** potencial pelos parâmetros da aba Internalização = área do campo × sc/ha (100%); base do ranking de cooperados */
+  potPainelSc: number;
+  /** internalização prevista para o campo inteiro = potencial × aproveitamento de campo */
+  previstoSc: number;
+  /** área descartada: o campo inteiro no descarte direto; no parcial, o que sobrou sem colher */
+  areaDescartada: number;
+  /** volume previsto que deixou de vir por causa do descarte */
+  scDescartado: number;
+  /** true = descarte parcial projetado pelo volume internalizado (nenhuma área colhida foi lançada) */
+  descarteEstimado: boolean;
+  /** área que ainda falta colher (0 quando a colheita foi encerrada ou o campo foi descartado) */
   areaRestante: number;
   /** true = área restante estimada pelo volume, porque nenhuma área colhida foi informada */
   restanteEstimado: boolean;
@@ -74,10 +84,25 @@ export function realCampo(c: Campo, lanc: ColheitaDia[], P: Parametros): RealCam
   const temVolume = lancamentos.length > 0;
 
   // o que ainda vem deste campo: usa só os parâmetros da aba Internalização, nunca a produtividade do produtor
-  const esperadoHa = ((c.ov_sc_ha ?? P.scHa) * (c.ov_aprov ?? P.aprov)) / 100;
+  const scHaPainel = c.ov_sc_ha ?? P.scHa;
+  const esperadoHa = (scHaPainel * (c.ov_aprov ?? P.aprov)) / 100;
+
+  // descarte: direto = o campo inteiro; parcial = o que sobrou, pela área colhida lançada ou,
+  // sem ela, projetado pelo volume internalizado (internalizado ÷ rendimento previsto por hectare)
+  let areaDescartada = 0;
+  let descarteEstimado = false;
+  if (c.descarte === 'total') areaDescartada = areaCampo;
+  else if (c.descarte === 'parcial') {
+    if (areaColhida != null) areaDescartada = Math.max(0, areaCampo - areaColhida);
+    else if (esperadoHa > 0) {
+      areaDescartada = Math.max(0, areaCampo - internSc / esperadoHa);
+      descarteEstimado = true;
+    }
+  }
+
   let areaRestante = areaCampo;
   let restanteEstimado = false;
-  if (!c.ativo || !c.incluir_projecao || c.colheita_fim) areaRestante = 0;
+  if (!c.ativo || !c.incluir_projecao || c.colheita_fim || c.descarte) areaRestante = 0;
   else if (areaColhida != null) areaRestante = Math.max(0, areaCampo - areaColhida);
   else if (internSc > 0 && esperadoHa > 0) {
     areaRestante = Math.max(0, areaCampo - internSc / esperadoHa);
@@ -93,6 +118,10 @@ export function realCampo(c: Campo, lanc: ColheitaDia[], P: Parametros): RealCam
     naoEnviadoSc: temVolume && potencialSc != null ? Math.max(0, potencialSc - colhidoSc) : null,
     aprovPct: temVolume && potencialSc != null && potencialSc > 0 ? (internSc / potencialSc) * 100 : null,
     internScHa: temVolume && areaBase > 0 ? internSc / areaBase : null,
+    potPainelSc: areaCampo * scHaPainel,
+    previstoSc: areaCampo * esperadoHa,
+    areaDescartada, descarteEstimado,
+    scDescartado: areaDescartada * esperadoHa,
     areaRestante, restanteEstimado,
     scRestante: areaRestante * esperadoHa,
   };

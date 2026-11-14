@@ -4,8 +4,9 @@ import { faixaDe, haversine, posicoes, rotulosFaixas, volumePorFaixa } from './g
 import { chaveCultivar, metaInternDe, resumirMetas } from './metas';
 import { inicioColheita, projetar, sacosCampo } from './projecao';
 import { agruparColheitas, paraKg, realCampo } from './realizado';
-import { gerarAlertas, resumoCampo } from './status';
-import { DemoStore, SEM_TABELAS, SupabaseStore } from './store';
+import { rankear, relatorioColheita } from './ranking';
+import { encerrado, gerarAlertas, resumoCampo } from './status';
+import { DemoStore, MIGRACAO_0002, MIGRACAO_0003, SEM_TABELAS, SupabaseStore } from './store';
 import {
   CONFIG_PADRAO, CONTROLE_PADRAO,
   type Campo, type ColheitaDia, type Dados, type Dessecacao, type MetaCultivar, type Programacao, type Tecnico,
@@ -435,38 +436,192 @@ describe('armazenamento: volume colhido e metas', () => {
   });
 });
 
-describe('Supabase sem a migração 0002', () => {
+describe('Supabase sem as migrações mais novas', () => {
   // cliente de mentira: responde como o PostgREST quando a tabela ou a coluna ainda não existe
-  function falso(tabelas: Record<string, unknown[]>) {
+  function falso(tabelas: Record<string, unknown[]>, colunasCampos: string[] = ['prod_real_sc_ha', 'descarte']) {
     const consulta = (t: string) => {
-      const resp = () =>
-        t in tabelas
-          ? { data: tabelas[t], error: null }
-          : { data: null, error: { message: `Could not find the table 'public.${t}' in the schema cache` } };
+      let sel = '*';
+      const resp = () => {
+        if (!(t in tabelas)) return { data: null, error: { message: `Could not find the table 'public.${t}' in the schema cache` } };
+        if (sel !== '*' && !colunasCampos.includes(sel)) return { data: null, error: { message: `column ${t}.${sel} does not exist` } };
+        return { data: tabelas[t], error: null };
+      };
       const q: Record<string, unknown> = {};
-      for (const m of ['select', 'order', 'eq', 'in']) q[m] = () => q;
+      for (const m of ['order', 'eq', 'in']) q[m] = () => q;
+      q.select = (c: string) => ((sel = c), q);
       q.range = async () => resp();
       q.maybeSingle = async () => ({ data: { dados: {} }, error: null });
-      q.update = () => ({ in: () => ({ select: async () => ({ data: null, error: { message: "Could not find the 'prod_real_sc_ha' column of 'campos' in the schema cache" } }) }) });
+      q.update = () => ({ in: () => ({ select: async () => ({ data: null, error: { message: "Could not find the 'descarte' column of 'campos' in the schema cache" } }) }) });
       return q;
     };
     return { rpc: async () => ({ data: true, error: null }), from: consulta } as never;
   }
-  const { prod_real_sc_ha: _p, ...campoAntigo } = campo();
+  const { prod_real_sc_ha: _p, descarte: _d, descarte_motivo: _m, descarte_data: _t, encerramento_obs: _o, ...campoAntigo } = campo();
+  const base = { tecnicos: [tec], dessecacoes: [], programacoes: [prog()] };
 
-  it('carrega o resto do sistema e avisa que falta atualizar o banco', async () => {
-    const d = await new SupabaseStore(falso({ tecnicos: [tec], campos: [campoAntigo], dessecacoes: [], programacoes: [prog()] })).carregar();
-    expect(d.faltaMigracao).toBe(true);
+  it('sem a 0002 e a 0003: carrega o resto do sistema e diz quais arquivos rodar', async () => {
+    const d = await new SupabaseStore(falso({ ...base, campos: [campoAntigo] }, [])).carregar();
+    expect(d.faltaMigracao).toEqual([MIGRACAO_0002, MIGRACAO_0003]);
     expect([d.campos.length, d.programacoes.length, d.colheitas.length, d.metas.length]).toEqual([1, 1, 0, 0]);
-    expect(d.campos[0].prod_real_sc_ha).toBeNull();
+    expect([d.campos[0].prod_real_sc_ha, d.campos[0].descarte, d.campos[0].descarte_motivo]).toEqual([null, null, null]);
     expect(d.config.metas).toEqual(CONFIG_PADRAO.metas);
+  });
+  it('só sem a 0003 (descarte): avisa só dela, mesmo sem nenhum campo cadastrado', async () => {
+    const tudo = { ...base, colheitas_diarias: [], metas_cultivar: [] };
+    expect((await new SupabaseStore(falso({ ...tudo, campos: [{ ...campoAntigo, prod_real_sc_ha: null }] }, ['prod_real_sc_ha'])).carregar()).faltaMigracao).toEqual([MIGRACAO_0003]);
+    expect((await new SupabaseStore(falso({ ...tudo, campos: [] }, ['prod_real_sc_ha'])).carregar()).faltaMigracao).toEqual([MIGRACAO_0003]);
   });
   it('com o banco atualizado não mostra o aviso', async () => {
     const d = await new SupabaseStore(falso({ tecnicos: [], campos: [campo()], dessecacoes: [], programacoes: [], colheitas_diarias: [], metas_cultivar: [] })).carregar();
-    expect(d.faltaMigracao).toBe(false);
+    expect(d.faltaMigracao).toEqual([]);
   });
-  it('sem nenhuma tabela continua explicando o que rodar; gravar na coluna nova também', async () => {
+  it('sem nenhuma tabela continua explicando o que rodar; gravar em coluna nova também', async () => {
     await expect(new SupabaseStore(falso({})).carregar()).rejects.toThrow(SEM_TABELAS);
-    await expect(new SupabaseStore(falso({})).atualizarCampos(['c1'], { prod_real_sc_ha: 60 })).rejects.toThrow(/0002_colheita_real_e_metas\.sql/);
+    await expect(new SupabaseStore(falso({})).atualizarCampos(['c1'], { descarte: 'total' })).rejects.toThrow(/0003_descarte\.sql/);
+  });
+});
+
+describe('descarte de campos', () => {
+  const vol = (sc: number, area_ha: number | null = null): ColheitaDia => ({ id: 'v' + sc, campo_id: 'c1', data: '2027-01-08', colhido_kg: sc * 60, aprovado_kg: null, area_ha, observacoes: null });
+
+  it('descartado sem colher: situação própria, sem alerta e sem nada disponível para colher', () => {
+    const c = campo({ descarte: 'total', descarte_motivo: 'clima', descarte_data: '2026-11-14' });
+    expect(resumoCampo(c, [dess()], '2026-11-15').situacao).toBe('descartado');
+    expect(encerrado(c)).toBe(true);
+    expect(gerarAlertas([c], [dess()], [], [tec], '2026-11-15')).toHaveLength(0);
+    const r = realCampo(c, [], P);
+    // o campo inteiro: 156 ha × 65 sc/ha × 70% = 7.098 sc que deixaram de vir
+    expect([r.areaRestante, r.scRestante, r.areaDescartada]).toEqual([0, 0, 156]);
+    expect(r.scDescartado).toBeCloseTo(7098, 9);
+  });
+  it('descarte parcial sem área lançada: projeta o descartado pelo volume internalizado', () => {
+    // previsto 7.098 sc; entraram 5.323,5 sc (3/4) → ficou para trás 1/4: 39 ha e 1.774,5 sc
+    const c = campo({ colheita_inicio: '2027-01-08', colheita_fim: '2027-01-10', descarte: 'parcial', descarte_motivo: 'qualidade', descarte_data: '2027-01-10' });
+    const r = realCampo(c, [vol(5323.5)], P);
+    expect(r.descarteEstimado).toBe(true);
+    expect(r.areaDescartada).toBeCloseTo(39, 9);
+    expect(r.scDescartado).toBeCloseTo(1774.5, 9);
+    expect(r.previstoSc - r.internSc).toBeCloseTo(r.scDescartado, 9);
+    expect(r.areaRestante).toBe(0);
+    expect(resumoCampo(c, [], '2027-01-12').situacao).toBe('colhido');
+    // entregou mais que o previsto: nada foi descartado
+    expect(realCampo(c, [vol(8000)], P).scDescartado).toBe(0);
+  });
+  it('descarte parcial com área colhida lançada: usa a área que sobrou', () => {
+    const c = campo({ colheita_inicio: '2027-01-08', colheita_fim: '2027-01-10', descarte: 'parcial' });
+    const r = realCampo(c, [vol(5000, 120)], P);
+    expect([r.descarteEstimado, r.areaDescartada]).toEqual([false, 36]);
+    expect(r.scDescartado).toBeCloseTo(36 * 45.5, 9);
+  });
+  it('sem descarte nada é abatido além do que já foi colhido', () => {
+    const r = realCampo(campo({ colheita_inicio: '2027-01-08', colheita_fim: '2027-01-10' }), [vol(3000)], P);
+    expect([r.areaDescartada, r.scDescartado, r.areaRestante]).toEqual([0, 0, 0]);
+  });
+  it('o volume descartado sai do disponível das metas e da projeção de internalização', () => {
+    const a = campo({ id: 'a', chave: 'A|S1', num_campo: 'A' });
+    const b = campo({ id: 'b', chave: 'B|S1', num_campo: 'B' });
+    const meta: MetaCultivar = { id: 'm', cultivar: 'CULTIVAR T', meta_sc200: null, pms_g: null, rend_ubs: null, meta_intern_sc: 10000, bb_ubs: null, bb_tolling: null, observacoes: null };
+    const disp = (campos: Campo[]) => resumirMetas(campos, new Map(campos.map((c) => [c.id, realCampo(c, [], P)])), [meta], P, CONFIG_PADRAO.metas).linhas[0];
+    expect(disp([a, b]).scDisp).toBeCloseTo(14196, 9);
+    expect(disp([a, b]).situacao).toBe('no_caminho');
+    const descartado = { ...b, descarte: 'total' as const };
+    expect(disp([a, descartado]).scDisp).toBeCloseTo(7098, 9);
+    expect(disp([a, descartado]).situacao).toBe('alerta');
+    // projeção: o descartado direto sai; no parcial só entra a área colhida
+    expect(projetar([a, descartado], new Map(), P).unidades.map((u) => u.campo.id)).toEqual(['a']);
+    const parcial = { ...b, colheita_inicio: '2027-01-08', colheita_fim: '2027-01-09', descarte: 'parcial' as const };
+    const proj = projetar([parcial], new Map(), P, new Map([['b', 56]]));
+    expect(proj.unidades[0].area).toBe(100);
+    expect(proj.total).toBeCloseTo(100 * 65 * 0.7, 6);
+  });
+  it('reimportar a planilha preserva o descarte', async () => {
+    const s = new DemoStore(null, { tecnicos: [], campos: [], dessecacoes: [], programacoes: [], colheitas: [], metas: [], config: structuredClone(CONFIG_PADRAO) });
+    const { id: _i, ...planilha } = campo();
+    const [c] = await s.importarCampos([planilha]);
+    expect(c.descarte).toBeNull();
+    await s.atualizarCampos([c.id], { descarte: 'total', descarte_motivo: 'negativa_colheita', descarte_data: '2026-11-14', encerramento_obs: 'produtor desistiu' });
+    const [de] = await s.importarCampos([{ ...planilha, area_mapa: 200 }]);
+    expect([de.descarte, de.descarte_motivo, de.descarte_data, de.encerramento_obs]).toEqual(['total', 'negativa_colheita', '2026-11-14', 'produtor desistiu']);
+  });
+});
+
+describe('ranking de cooperados', () => {
+  let n = 0;
+  const c = (id: string, cliente: string, area: number, p: Partial<Campo> = {}) =>
+    campo({ id, chave: id + '|S1', num_campo: id, cliente, area_mapa: area, colheita_inicio: '2027-01-08', colheita_fim: '2027-01-10', ...p });
+  const vol = (campo_id: string, sc: number, aprov: number | null = null, area_ha: number | null = null): ColheitaDia =>
+    ({ id: 'r' + ++n, campo_id, data: '2027-01-08', colhido_kg: sc * 60, aprovado_kg: aprov == null ? null : aprov * 60, area_ha, observacoes: null });
+  const rank = (campos: Campo[], colheitas: ColheitaDia[]) => {
+    const g = agruparColheitas(colheitas);
+    return rankear(campos, new Map(campos.map((x) => [x.id, realCampo(x, g.get(x.id) ?? [], P)])), new Map(campos.map((x) => [x.id, resumoCampo(x, [], '2027-01-15')])));
+  };
+
+  it('ordena pelo volume internalizado e mostra que quem entregou mais pode ter aproveitado menos', () => {
+    // GRANDE: 1.000 ha → potencial 65.000 sc, internalizou 26.000 (40%); PEQUENO: 100 ha → 6.500 sc, internalizou 6.500 (100%)
+    const R = rank([c('g1', 'GRANDE', 600), c('g2', ' grande ', 400), c('p1', 'PEQUENO', 100)], [vol('g1', 20000), vol('g2', 8000, 6000), vol('p1', 6500)]);
+    expect(R.cooperados.map((g) => [g.posicao, g.nome, g.campos.length])).toEqual([[1, 'GRANDE', 2], [2, 'PEQUENO', 1]]);
+    const [grande, pequeno] = R.cooperados;
+    expect([grande.potContaSc, grande.colhidoSc, grande.internSc]).toEqual([65000, 28000, 26000]);
+    expect(grande.aprovPct).toBeCloseTo(40, 9);
+    expect(pequeno.aprovPct).toBeCloseTo(100, 9);
+    expect(grande.participacao).toBeCloseTo(80, 9);
+    expect([R.internSc, R.colhidoSc, R.comEntrega]).toEqual([32500, 34500, 2]);
+    expect(R.aprovPct).toBeCloseTo((32500 / 71500) * 100, 9);
+    // campo a campo, do que mais entregou para o que menos entregou
+    expect(grande.campos.map((x) => [x.campo.id, x.potencialSc, x.internSc])).toEqual([['g1', 39000, 20000], ['g2', 26000, 6000]]);
+  });
+  it('campo ainda por colher não pesa; em colheita pesa só a área colhida; descartado sem colher pesa inteiro', () => {
+    const R = rank([
+      c('a', 'JOÃO', 100, { colheita_inicio: null, colheita_fim: null }),
+      c('b', 'JOÃO', 200, { colheita_fim: null }),
+      c('d', 'JOÃO', 50, { colheita_inicio: null, colheita_fim: null, descarte: 'total', descarte_motivo: 'clima' }),
+      c('e', 'MARIA', 80, { colheita_inicio: null, colheita_fim: null }),
+    ], [vol('b', 3250, null, 100)]);
+    const joao = R.cooperados[0];
+    expect([joao.nAColher, joao.nEmColheita, joao.nDescartados, joao.nColhidos]).toEqual([1, 1, 1, 0]);
+    // potencial na conta: 100 ha colhidos × 65 + 50 ha descartados × 65 = 9.750 (os 100 ha por colher e o resto do campo b ficam fora)
+    expect(joao.potContaSc).toBe(9750);
+    expect(joao.potencialSc).toBe(350 * 65);
+    expect(joao.aprovPct).toBeCloseTo((3250 / 9750) * 100, 9);
+    expect(joao.campos.find((x) => x.campo.id === 'd')!.aprovPct).toBe(0);
+    expect(joao.campos.find((x) => x.campo.id === 'a')!.aprovPct).toBeNull();
+    const maria = R.cooperados[1];
+    expect([maria.posicao, maria.aprovPct, maria.potContaSc]).toEqual([null, null, 0]);
+    expect(R.motivos).toEqual([{ motivo: 'Clima', campos: 1, area: 50, sc: 50 * 45.5 }]);
+  });
+  it('a produtividade do produtor e os campos inativos não entram no ranking', () => {
+    const base = [c('a', 'JOÃO', 100), c('x', 'JOÃO', 500, { ativo: false })];
+    const sem = rank(base, [vol('a', 3000), vol('x', 9000)]).cooperados[0];
+    const com = rank([{ ...base[0], prod_real_sc_ha: 30 }, base[1]], [vol('a', 3000), vol('x', 9000)]).cooperados[0];
+    expect([sem.internSc, sem.potContaSc, sem.campos.length]).toEqual([3000, 6500, 1]);
+    expect([com.internSc, com.potContaSc, com.aprovPct]).toEqual([sem.internSc, sem.potContaSc, sem.aprovPct]);
+  });
+  it('relatório de colheita e descartes: datas, descarte direto, motivo, observações e volume descartado', () => {
+    const R = rank([
+      c('a', 'JOÃO', 156, { descarte: 'parcial', descarte_motivo: 'qualidade', descarte_data: '2027-01-10', encerramento_obs: 'talhão 3 ficou' }),
+      c('d', 'JOÃO', 50, { colheita_inicio: null, colheita_fim: null, descarte: 'total', descarte_motivo: 'moega_indisponivel', descarte_data: '2027-01-05' }),
+      c('n', 'MARIA', 100),
+    ], [vol('a', 5323.5), vol('n', 4000)]);
+    const linhas = relatorioColheita(R.cooperados.flatMap((g) => g.campos));
+    const cab = linhas[0] as string[];
+    const de = (id: string, col: string) => linhas.find((l) => l[1] === id)![cab.indexOf(col)];
+    expect(cab).toEqual(expect.arrayContaining(['Início da colheita', 'Fim da colheita', 'Descartado direto (sem colher)', 'Motivo do descarte', 'Observações', 'Volume descartado (sc)']));
+    expect([de('a', 'Início da colheita'), de('a', 'Fim da colheita'), de('a', 'Descartado direto (sem colher)'), de('a', 'Motivo do descarte'), de('a', 'Observações')])
+      .toEqual(['08/01/2027', '10/01/2027', 'Não', 'Qualidade', 'talhão 3 ficou']);
+    expect([de('a', 'Área descartada (ha)'), de('a', 'Volume descartado (sc)'), de('a', 'Como o descarte foi calculado')]).toEqual([39, 1775, 'projetado pelo volume internalizado']);
+    expect([de('d', 'Início da colheita'), de('d', 'Fim da colheita'), de('d', 'Descartado direto (sem colher)'), de('d', 'Motivo do descarte'), de('d', 'Situação'), de('d', 'Data do descarte')])
+      .toEqual([null, null, 'Sim', 'Moega indisponível', 'Descartado', '05/01/2027']);
+    expect([de('n', 'Descartado direto (sem colher)'), de('n', 'Tipo de descarte'), de('n', 'Volume descartado (sc)'), de('n', 'Aprovado e internalizado (sc)')]).toEqual(['Não', null, null, 4000]);
+  });
+  it('os dados de exemplo trazem um descarte direto e um parcial', async () => {
+    const d = await new DemoStore(null).carregar();
+    expect(d.campos.filter((x) => x.descarte === 'total')).toHaveLength(1);
+    expect(d.campos.filter((x) => x.descarte === 'parcial')).toHaveLength(1);
+    const g = agruparColheitas(d.colheitas);
+    const reais = new Map(d.campos.map((x) => [x.id, realCampo(x, g.get(x.id) ?? [], d.config.params)]));
+    const R = rankear(d.campos, reais, new Map(d.campos.map((x) => [x.id, resumoCampo(x, [], '2026-11-14')])));
+    expect(R.comEntrega).toBeGreaterThan(3);
+    expect(R.motivos.map((m) => m.motivo).sort()).toEqual(['Clima', 'Qualidade']);
+    expect(R.motivos.every((m) => m.sc > 0)).toBe(true);
   });
 });

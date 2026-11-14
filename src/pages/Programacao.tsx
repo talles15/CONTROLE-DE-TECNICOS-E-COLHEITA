@@ -5,6 +5,7 @@ import { useDados } from '../lib/dados';
 import { br, diaSemanaLongo, ehIso, somaDias } from '../lib/dates';
 import { baixar, copiar, n0, semAcento } from '../lib/format';
 import { abrirFicha, ir } from '../lib/rota';
+import { encerrado } from '../lib/status';
 import { ATIVIDADES, STATUS_PROG, type Atividade, type Campo, type Programacao as Prog, type Tecnico } from '../lib/types';
 import { linkWhats, textoGeral, textoTecnico, type ItemProg } from '../lib/whatsapp';
 
@@ -32,7 +33,7 @@ export default function Programacao({ params }: { params: Record<string, string>
     if (params.atividade === 'coleta_pre' || params.atividade === 'colheita_pre') setAtiv(params.atividade);
   }, [params.campo, params.atividade]);
 
-  const ativos = useMemo(() => d.dados.campos.filter((c) => c.ativo && !c.colheita_fim), [d.dados.campos]);
+  const ativos = useMemo(() => d.dados.campos.filter((c) => c.ativo && !encerrado(c)), [d.dados.campos]);
   const doDia = useMemo(() => d.dados.programacoes.filter((p) => p.data === data), [d.dados.programacoes, data]);
   const validos = doDia.filter((p) => p.status !== 'cancelado');
 
@@ -52,7 +53,7 @@ export default function Programacao({ params }: { params: Record<string, string>
     const aviso = d.dados.config.avisoDias;
     for (const x of d.dados.dessecacoes) {
       const c = d.campoPorId.get(x.campo_id);
-      if (!c || !c.ativo || c.colheita_fim || !x.data_provavel_colheita || jaTem.has(c.id)) continue;
+      if (!c || !c.ativo || encerrado(c) || !x.data_provavel_colheita || jaTem.has(c.id)) continue;
       const p = x.data_provavel_colheita;
       if (p === data) out.set(c.id, { campo: c, motivo: `Colheita provável neste dia (dessecado em ${br(x.data)})`, atividade: 'colheita_pre' });
       else if (p > data && p <= somaDias(data, Math.max(1, aviso)) && !out.has(c.id)) {
@@ -62,7 +63,7 @@ export default function Programacao({ params }: { params: Record<string, string>
       }
     }
     for (const c of d.dados.campos) {
-      if (!c.ativo || c.colheita_fim || !c.colheita_inicio || c.colheita_inicio > data || jaTem.has(c.id) || out.has(c.id)) continue;
+      if (!c.ativo || encerrado(c) || !c.colheita_inicio || c.colheita_inicio > data || jaTem.has(c.id) || out.has(c.id)) continue;
       out.set(c.id, { campo: c, motivo: `Em colheita desde ${br(c.colheita_inicio)}`, atividade: 'colheita_pre' });
     }
     return [...out.values()].sort((a, b) => ordCampo(a.campo, b.campo));
@@ -90,7 +91,7 @@ export default function Programacao({ params }: { params: Record<string, string>
     const novos = base.filter((p) => {
       const c = d.campoPorId.get(p.campo_id);
       const t = d.tecnicoPorId.get(p.tecnico_id);
-      return c && t && c.ativo && t.ativo && !c.colheita_fim && !doDia.some((x) => x.tecnico_id === p.tecnico_id && x.campo_id === p.campo_id);
+      return c && t && c.ativo && t.ativo && !encerrado(c) && !doDia.some((x) => x.tecnico_id === p.tecnico_id && x.campo_id === p.campo_id);
     });
     if (!novos.length) return d.avisar(`Nada para copiar de ${br(ant)}.`, 'erro');
     await d.salvarProgramacoes(
@@ -279,7 +280,10 @@ function ItemCard({ it }: { it: ItemProg }) {
     <div className={'item ' + p.status} data-campo={c.num_campo}>
       <div className="l1">
         <b><button className="lk" style={{ background: 'none', border: 0, padding: 0, font: 'inherit', cursor: 'pointer', color: 'inherit', textDecoration: 'underline' }} onClick={() => abrirFicha(c.id)}>{c.num_campo}</button> <span className="muted" style={{ fontWeight: 400 }}>{c.categoria_colher} · {n0(c.area_mapa)} ha</span></b>
-        <button className="btn mini perigo" aria-label={`Remover ${c.num_campo}`} onClick={() => void d.excluirProgramacao(p.id)}>Remover</button>
+        <span className="btns" style={{ gap: 4, flexWrap: 'nowrap' }}>
+          <button className="btn mini" title="Registrar que o campo foi descartado (com o motivo)" aria-label={`Descartar ${c.num_campo}`} onClick={() => abrirFicha(c.id, 'descarte')}>Descartar campo</button>
+          <button className="btn mini perigo" aria-label={`Remover ${c.num_campo}`} onClick={() => void d.excluirProgramacao(p.id)}>Remover</button>
+        </span>
       </div>
       <div className="l2">{descCampo(c)}{c.produto ? ` · ${c.produto}` : ''}</div>
       <ControlesProg prog={p} />

@@ -4,7 +4,7 @@ import { useDados } from '../lib/dados';
 import { br, diaSemana, diaSemanaLongo, diaSemanaN, dn, iso, MESES, somaDias } from '../lib/dates';
 import { n0 } from '../lib/format';
 import { abrirFicha, ir } from '../lib/rota';
-import { ORDEM_SITUACAO, SITUACOES, type Alerta, type TipoAlerta } from '../lib/status';
+import { encerrado, ORDEM_SITUACAO, SITUACOES, type Alerta, type TipoAlerta } from '../lib/status';
 import { ATIVIDADES, STATUS_PROG, type Campo } from '../lib/types';
 
 type Camada = 'dess' | 'prog' | 'colh' | 'prev';
@@ -52,13 +52,13 @@ export default function Calendario() {
       if (!c || !c.ativo) continue;
       add(x.data, 'dess', c, `Dessecação registrada neste dia${x.area_ha ? ` (${n0(x.area_ha)} ha)` : ''}`);
       const p = x.data_provavel_colheita;
-      if (p && !(c.colheita_inicio && c.colheita_inicio <= p) && !(c.colheita_fim && c.colheita_fim < p)) {
+      if (p && c.descarte !== 'total' && !(c.colheita_inicio && c.colheita_inicio <= p) && !(c.colheita_fim && c.colheita_fim < p)) {
         add(p, 'prog', c, `Colheita provável: dessecado em ${br(x.data)} + ${x.dias_para_colheita} dia(s)`);
       }
     }
     for (const c of d.dados.campos) {
       if (!c.ativo) continue;
-      if (c.colheita_inicio) {
+      if (c.colheita_inicio && c.descarte !== 'total') {
         if (c.colheita_inicio > hoje) add(c.colheita_inicio, 'prog', c, 'Início da colheita marcado para este dia');
         const fim = c.colheita_fim ?? hoje;
         for (let k = dn(c.colheita_inicio); k <= dn(fim) && k - dn(c.colheita_inicio) < 120; k++) {
@@ -71,7 +71,7 @@ export default function Calendario() {
     for (const p of d.dados.programacoes) {
       const c = d.campoPorId.get(p.campo_id);
       if (!c || !c.ativo || p.status === 'cancelado' || p.atividade !== 'colheita_pre' || p.data < hoje) continue;
-      if (c.colheita_fim || (c.colheita_inicio && c.colheita_inicio <= p.data)) continue;
+      if (encerrado(c) || (c.colheita_inicio && c.colheita_inicio <= p.data)) continue;
       add(p.data, 'prog', c, `Técnico programado para colher: ${d.tecnicoPorId.get(p.tecnico_id)?.nome ?? '—'}`);
     }
     return m;

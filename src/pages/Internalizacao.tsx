@@ -43,7 +43,9 @@ export default function Internalizacao() {
   const setP = (patch: Partial<Parametros>) => d.salvarConfig({ ...d.dados.config, params: { ...P, ...patch } });
   const ativos = useMemo(() => d.dados.campos.filter((c) => c.ativo), [d.dados.campos]);
   const filtrados = useMemo(() => ativos.filter((c) => passa(c, filtros)), [ativos, filtros]);
-  const R = useMemo(() => projetar(filtrados, d.provaveis, P), [filtrados, d.provaveis, P]);
+  // campo descartado sem colher sai da projeção; no descarte parcial só entra a área de fato colhida
+  const descartada = useMemo(() => new Map([...d.reais].map(([id, r]) => [id, r.areaDescartada])), [d.reais]);
+  const R = useMemo(() => projetar(filtrados, d.provaveis, P, descartada), [filtrados, d.provaveis, P, descartada]);
 
   const { unidades, dias, total, semData } = R;
   const area = unidades.reduce((s, u) => s + u.area, 0);

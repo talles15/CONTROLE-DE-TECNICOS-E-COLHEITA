@@ -6,7 +6,7 @@ import { br, somaDias } from '../lib/dates';
 import { csv, baixar, n0, n1, semAcento } from '../lib/format';
 import { abrirFicha, ir } from '../lib/rota';
 import { ORDEM_SITUACAO, SITUACOES, type Situacao } from '../lib/status';
-import type { Campo } from '../lib/types';
+import { DESCARTES, motivoDescarte, type Campo } from '../lib/types';
 
 type Col = 'campo' | 'cliente' | 'cidade' | 'produto' | 'area' | 'prev' | 'dess' | 'prov' | 'sit' | 'intern';
 
@@ -75,13 +75,16 @@ export default function Campos() {
       'Campo', 'Categoria a colher', 'Cliente', 'Fazenda', 'Cidade', 'UF', 'Cultivar', 'Área MAPA (ha)', 'Colheita prevista (planilha)',
       'Última dessecação', 'Área dessecada (ha)', 'Colheita provável', 'Início colheita', 'Fim colheita', 'Situação',
       'Colhido (sc)', 'Aprovado e internalizado (sc)', 'Área ainda a colher (ha)',
+      'Tipo de descarte', 'Motivo do descarte', 'Data do descarte', 'Área descartada (ha)', 'Volume descartado (sc)', 'Observações do encerramento',
     ]];
     for (const c of lista) {
       const r = d.resumos.get(c.id)!;
       const x = d.reais.get(c.id)!;
       linhas.push([c.num_campo, c.categoria_colher, c.cliente, c.propriedade, c.cidade, c.uf, c.produto, c.area_mapa, br(c.data_colheita_prevista),
         br(r.ultimaDessecacao), r.areaDessecada || null, br(r.provavel), br(c.colheita_inicio), br(c.colheita_fim), SITUACOES[r.situacao].rotulo,
-        x.lancamentos.length ? Math.round(x.colhidoSc) : null, x.lancamentos.length ? Math.round(x.internSc) : null, +x.areaRestante.toFixed(1)]);
+        x.lancamentos.length ? Math.round(x.colhidoSc) : null, x.lancamentos.length ? Math.round(x.internSc) : null, +x.areaRestante.toFixed(1),
+        c.descarte ? DESCARTES[c.descarte] : null, motivoDescarte(c.descarte_motivo) || null, c.descarte_data ? br(c.descarte_data) : null,
+        c.descarte ? +x.areaDescartada.toFixed(1) : null, c.descarte ? Math.round(x.scDescartado) : null, c.encerramento_obs]);
     }
     baixar(`campos_${d.hoje}.csv`, csv(linhas), 'text/csv;charset=utf-8');
   }
@@ -97,6 +100,7 @@ export default function Campos() {
           <button className="btn primary" onClick={() => setNovo(true)}>+ Novo campo</button>
           <button className="btn" onClick={() => ir('importar')}>Importar planilha</button>
           <button className="btn" onClick={exportar}>Exportar CSV</button>
+          <button className="btn" onClick={() => ir('ranking')}>Relatório de colheita e descartes</button>
         </div>
       </div>
       <div className="btns" style={{ marginBottom: 12 }}>
@@ -136,7 +140,7 @@ export default function Campos() {
                   <td className="nowrap">{br(c.data_colheita_prevista)}</td>
                   <td className="nowrap">{r.ultimaDessecacao ? <>{br(r.ultimaDessecacao)}{r.areaDessecada ? <span className="muted"> · {n0(r.areaDessecada)} ha</span> : null}</> : <span className="muted">—</span>}</td>
                   <td className="nowrap">{r.provavel ? <b>{br(r.provavel)}</b> : <span className="muted">—</span>}</td>
-                  <td><Sit s={r.situacao} /></td>
+                  <td><Sit s={r.situacao} />{c.descarte && <div className="muted" title={c.encerramento_obs ?? undefined}>{c.descarte === 'parcial' ? 'descarte parcial · ' : ''}{motivoDescarte(c.descarte_motivo)}</div>}</td>
                   <td className="n">{x.lancamentos.length ? n0(x.internSc) : <span className="muted">—</span>}</td>
                   <td>{tecs.map((t, i) => { const x = d.tecnicoPorId.get(t.id); return x ? <TecChip key={i} t={x} extra={t.quando} /> : null; })}</td>
                 </tr>

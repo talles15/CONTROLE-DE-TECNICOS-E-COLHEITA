@@ -6,7 +6,7 @@ import { baixar, csv, n0, n1, num } from '../lib/format';
 import { faixaDe, haversine, posicoes, rotulosFaixas, volumePorFaixa, type ItemVolume } from '../lib/geo';
 import { areaDe, sacosCampo } from '../lib/projecao';
 import { abrirFicha } from '../lib/rota';
-import { ORDEM_SITUACAO, SITUACOES, type Situacao } from '../lib/status';
+import { encerrado, ORDEM_SITUACAO, SITUACOES, type Situacao } from '../lib/status';
 import type { Campo } from '../lib/types';
 
 type Metrica = 'exp' | 'aprov' | 'ton' | 'area';
@@ -18,7 +18,7 @@ const METRICAS: Record<Metrica, { rotulo: string; un: string }> = {
 };
 const GRUPOS: [string, string][] = [['produto', 'Cultivar'], ['obtentor', 'Obtentor'], ['categoria_colher', 'Categoria a colher'], ['cidade', 'Cidade'], ['cliente', 'Cliente']];
 // cores fixas (o fundo do mapa é sempre claro)
-const CORES: Record<Situacao, string> = { plantado: '#8a897f', dessecado: '#d98a00', programada: '#2a78d6', em_colheita: '#0c8a2c', colhido: '#3d4657' };
+const CORES: Record<Situacao, string> = { plantado: '#8a897f', dessecado: '#d98a00', programada: '#2a78d6', em_colheita: '#0c8a2c', colhido: '#3d4657', descartado: '#b83232' };
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 interface Ponto {
@@ -61,7 +61,7 @@ export default function Mapa() {
       return metrica === 'ton' ? (s * P.kg) / 1000 : s;
     };
     return ativos
-      .filter((c) => passa(c, filtros) && (!soPendente || !c.colheita_fim))
+      .filter((c) => passa(c, filtros) && (!soPendente || !encerrado(c)))
       .map((c) => {
         const p = pos.get(c.id);
         const dist = p ? haversine(ubs.lat, ubs.lng, p.lat, p.lng) : null;

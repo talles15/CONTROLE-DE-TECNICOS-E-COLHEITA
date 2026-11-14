@@ -344,3 +344,17 @@ td.pos { color: var(--good); }
 table.quebra th { white-space: normal; vertical-align: bottom; line-height: 1.25; }
 .informativo { margin-top: 14px; padding: 12px; border: 1px dashed var(--axis); border-radius: 8px; }
 .informativo h3 { display: flex; align-items: center; gap: 8px; }
+
+/* descarte e ranking de cooperados */
+:root { --st-descartado: #b83232; }
+@media (prefers-color-scheme: dark) { :root { --st-descartado: #ef6b6b; } }
+.badge.desc { background: var(--critical-soft); border-color: transparent; color: var(--text-primary); }
+.secao.foco { outline: 2px solid var(--series-1); outline-offset: 6px; border-radius: 4px; }
+.medidor { position: relative; height: 6px; border-radius: 3px; background: var(--surface-2); margin-top: 4px; min-width: 90px; }
+.medidor i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--meta-real); min-width: 2px; }
+.medidor span { position: absolute; right: 0; top: 7px; font-size: 10.5px; color: var(--text-muted); }
+.medidor:has(span) { margin-bottom: 14px; }
+.medidor.aprov i { background: var(--series-1); }
+tr.detalhe > td { background: var(--surface-2); padding: 12px; }
+tbody tr.detalhe:hover > td { background: var(--surface-2); }
+.detalhe-in table { background: var(--surface-1); }

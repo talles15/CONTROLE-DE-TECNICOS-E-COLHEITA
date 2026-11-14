@@ -373,6 +373,90 @@ try {
   console.log('     ' + tab.split('\n').find((l) => l.startsWith('Total')).replace(/\t/g, ' | '));
   await foto('6-mapa');
 
+  console.log('Descarte de campos');
+  await ir('programacao?data=2026-11-17');
+  await p.locator('[data-tecnico="Técnico E2E"]').getByRole('button', { name: 'Descartar', exact: false }).first().click();
+  const desc = p.getByTestId('descarte');
+  await desc.waitFor();
+  ok(/foco=descarte/.test(p.url()), 'a programação tem a opção de descartar o campo, que abre a ficha no descarte');
+  await desc.getByLabel('Descarte', { exact: true }).selectOption('total');
+  await desc.getByRole('button', { name: 'Registrar descarte' }).click();
+  await p.getByText('Escolha o motivo do descarte.').waitFor();
+  ok(true, 'o motivo do descarte é obrigatório');
+  ok((await desc.getByLabel('Motivo do descarte').locator('option').allInnerTexts()).join('|') === 'Escolha…|Qualidade|Clima|Negativa de colheita|Moega indisponível', 'motivos: Qualidade, Clima, Negativa de colheita e Moega indisponível');
+  await desc.getByLabel('Motivo do descarte').selectOption('clima');
+  await desc.getByLabel('Observações do encerramento').fill('Chuva na pré-colheita');
+  await desc.getByRole('button', { name: 'Registrar descarte' }).click();
+  await p.getByText('Campo descartado sem colher.').waitFor();
+  await p.getByText(/escala\(s\) futura\(s\) deste campo foram canceladas/).waitFor();
+  ok(/Descartado/.test(await p.getByRole('dialog').locator('.modal-head').innerText()), 'o campo descartado sem colher passa para a situação "Descartado" e as escalas futuras são canceladas');
+  if (!real) ok(/200,0 ha/.test(await p.getByTestId('descarte-resumo').innerText()) && /9\.100 sc/.test(await p.getByTestId('descarte-resumo').innerText()), 'descarte direto: o campo inteiro (200 ha × 65 sc/ha × 70% = 9.100 sc) sai da conta');
+  await p.getByRole('button', { name: 'Fechar' }).click();
+  ok((await p.getByLabel('Campo', { exact: true }).count()) === 1, 'ficha fechada');
+
+  // descarte parcial no campo que já tem volume: 300 ha, 150 ha colhidos lançados
+  await ir('campos');
+  await p.getByPlaceholder('Buscar campo, cliente, fazenda, cultivar…').fill(alvo);
+  await p.locator('tbody tr').first().click();
+  await desc.getByLabel('Descarte', { exact: true }).selectOption('total');
+  await desc.getByLabel('Motivo do descarte').selectOption('qualidade');
+  await desc.getByRole('button', { name: 'Registrar descarte' }).click();
+  await p.getByText('Este campo já tem volume lançado: use “Descarte parcial”.').waitFor();
+  ok(true, 'campo com volume lançado não pode ser descartado "sem colher"');
+  await desc.getByLabel('Descarte', { exact: true }).selectOption('parcial');
+  await desc.getByLabel('Data do descarte').fill('2026-11-16');
+  await desc.getByLabel('Observações do encerramento').fill('Resto do talhão com dano mecânico');
+  await desc.getByRole('button', { name: 'Registrar descarte' }).click();
+  await p.getByText('Descarte parcial registrado.').waitFor();
+  const resumoDesc = await p.getByTestId('descarte-resumo').innerText();
+  ok(/Qualidade/.test(resumoDesc) && /150,0 ha/.test(resumoDesc) && /6\.825 sc/.test(resumoDesc), 'descarte parcial: sobraram 150 ha → 6.825 sc que deixaram de vir (150 ha × 65 sc/ha × 70%)');
+  ok((await p.getByLabel('Fim da colheita').inputValue()) === '2026-11-16' && /descarte parcial/.test(await p.getByRole('dialog').locator('.modal-head').innerText()), 'a colheita fica finalizada na data do descarte e a ficha mostra "descarte parcial"');
+  await foto('10-ficha-descarte');
+  await p.getByRole('button', { name: 'Fechar' }).click();
+
+  console.log('Volume descartado sai do disponível');
+  await ir('metas');
+  if (!real) {
+    const alertaDesc = await p.getByTestId('alerta-metas').innerText();
+    // CULT 74: sobra só o campo de 500 ha → 22.750 sc; faltam 35.500 → déficit de 12.750
+    ok(/22\.750 sc/.test(alertaDesc) && /Déficit de 12\.750 sc/.test(alertaDesc), 'metas: o disponível da cultivar cai para 22.750 sc e o déficit sobe para 12.750 sc');
+    ok(/1\.365/.test(await p.getByTestId('tabela-metas').locator('tr[data-cultivar="CULT 70"]').innerText()), 'metas: a cultivar do campo descartado direto fica só com os 30 ha restantes (1.365 sc)');
+    await ir('internalizacao');
+    ok(/30\.940 sc/.test(await p.locator('.kpis').innerText()), 'internalização: a projeção cai para 680 ha × 65 sc/ha × 70% = 30.940 sc');
+  }
+
+  console.log('Ranking de cooperados e relatório');
+  await ir('ranking');
+  const tabRank = p.getByTestId('tabela-ranking');
+  const cooperado = campos.find((c) => c.num_campo === alvo).cliente;
+  const linhaCoop = tabRank.locator(`tr[data-cooperado="${cooperado}"]`);
+  const txtCoop = await linhaCoop.innerText();
+  ok(/^1º/.test(txtCoop.trim()) && /4\.500/.test(txtCoop), 'o cooperado que mais internalizou fica em 1º (4.500 sc)');
+  if (!real) {
+    // potencial do campo encerrado: 300 ha × 65 sc/ha = 19.500 sc → 4.500 ÷ 19.500 = 23,1%
+    ok(/19\.500/.test(txtCoop) && /23,1%/.test(txtCoop) && /6\.825/.test(txtCoop), 'aproveitamento = internalizado ÷ potencial (4.500 ÷ 19.500 = 23,1%), com o descartado ao lado');
+    const txtA = await tabRank.locator('tr[data-cooperado="Cliente Exemplo A"]').innerText();
+    ok(/1 descartado/.test(txtA) && /13\.000/.test(txtA) && /0,0%/.test(txtA) && /9\.100/.test(txtA), 'quem teve campo descartado sem colher aparece com o potencial (13.000 sc) e 0% de aproveitamento');
+    const kpisRank = await p.getByTestId('kpis-ranking').innerText();
+    ok(/1 de 4/.test(kpisRank) && /15\.925 sc/.test(kpisRank), 'indicadores: 1 de 4 cooperados com entrega e 15.925 sc descartados');
+    const motivos = await p.getByTestId('tabela-motivos').innerText();
+    ok(/Clima\s+1\s+200,0\s+9\.100/.test(motivos) && /Qualidade\s+1\s+150,0\s+6\.825/.test(motivos), 'descartes por motivo: Clima 9.100 sc e Qualidade 6.825 sc');
+  }
+  await linhaCoop.click();
+  const det = await p.getByTestId('detalhe-cooperado').innerText();
+  ok(det.includes(alvo) && /Qualidade/.test(det) && /4\.500/.test(det), 'clicando no cooperado aparece campo a campo: potencial, entregue, internalizado e o descarte');
+  await p.getByRole('columnheader', { name: /^Aproveitamento/ }).first().click();
+  ok(/Aproveitamento ▾/.test(await tabRank.locator('thead').first().innerText()), 'dá para ordenar pelo aproveitamento');
+  const [dlRel] = await Promise.all([p.waitForEvent('download'), p.getByRole('button', { name: 'Relatório de colheita e descartes (CSV)' }).click()]);
+  ok(dlRel.suggestedFilename() === 'relatorio_colheita_descartes_2026-11-15.csv', 'exporta o relatório ' + dlRel.suggestedFilename());
+  const rel = readFileSync(await dlRel.path(), 'utf8');
+  ok(/Início da colheita;Fim da colheita;Descartado direto \(sem colher\);Tipo de descarte;Motivo do descarte;Data do descarte;Observações/.test(rel), 'o relatório traz início, fim, descarte direto, motivo e observações');
+  const linhaAlvo = rel.split('\r\n').find((l) => l.split(';')[1] === alvo);
+  ok(/;15\/11\/2026;16\/11\/2026;Não;Descarte parcial \(colheu uma parte\);Qualidade;16\/11\/2026;Resto do talhão com dano mecânico;/.test(linhaAlvo), 'linha do descarte parcial: datas da colheita, "Não" para descarte direto, motivo e observação');
+  ok(/;;;Sim;Descartado sem colher \(descarte direto\);Clima;15\/11\/2026;Chuva na pré-colheita;/.test(rel), 'linha do descarte direto: sem datas de colheita, "Sim", motivo e observação');
+  writeFileSync(join(saida, 'relatorio.csv'), rel);
+  await foto('11-ranking');
+
   ok(erros.length === 0, 'nenhum erro de JavaScript nas telas' + (erros.length ? ': ' + erros.join(' | ') : ''));
   console.log('\nTudo certo. Capturas em ' + saida);
 } catch (e) {
